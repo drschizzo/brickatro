@@ -35,6 +35,8 @@ export class Hand {
   private tripCands: TripCand[] = [];
   /** La brique de tête du trajet en cours est déjà prise. */
   private headTaken = false;
+  /** Meilleure candidate du trajet, par état de la partie (l'aperçu la redemande plusieurs fois par brique). */
+  private leadMemo = new Map<string, TripCand | null>();
 
   constructor(private readonly engine: Engine) {}
 
@@ -152,6 +154,18 @@ export class Hand {
 
   /** Mode 'best' : la candidate du trajet en cours qui entrerait dans la Main si le trajet finissait maintenant (Joker résolu). */
   tripLead(): TripCand | null {
+    if (!this.tripCands.length) return null;
+    const key = this.stateKey();
+    let lead = this.leadMemo.get(key);
+    if (lead === undefined) {
+      if (this.leadMemo.size > 64) this.leadMemo.clear();
+      lead = this.findLead();
+      this.leadMemo.set(key, lead);
+    }
+    return lead && { ...lead, pb: { ...lead.pb } };
+  }
+
+  private findLead(): TripCand | null {
     let pick: TripCand | null = null, bestV = -1;
     for (const c of this.tripCands) {
       const pb = this.resolveJoker(c.pb);
@@ -161,6 +175,25 @@ export class Hand {
       if (v > bestV) { bestV = v; pick = { ...c, pb }; }
     }
     return pick;
+  }
+
+  /**
+   * Tout ce dont dépend le score d'une Main (sans tirage) : la Main, les candidates du trajet, les Reliques,
+   * les niveaux, la vitesse de la balle, l'état du Mur, les contraintes de Boss et les Commandes.
+   */
+  private stateKey(): string {
+    const { engine, pot: p } = this;
+    const run = engine.run!;
+    const brick = (b: PotBrick) => `${b.uid}.${b.value}.${b.color}.${b.enh}.${b.edition}.${b.cause}.${b.trip}.${b.row}.${b.col}.${b.vein}`
+      + `.${b.wallBounces}.${b.sideBounces}.${+b.star}.${+b.called}.${+b.bumped}.${+b.ported}.${+b.fromAbove}.${+!!b.frenzy}`;
+    return [
+      p.bricks.map(brick).join(','), this.tripCands.map((c) => brick(c.pb)).join(','),
+      p.size, p.rebounds, p.trip, p.broken, p.segment, p.maxSegment, p.wallStreak, p.springMult, p.edgeRebounds, p.streak, p.shakes,
+      +p.frenzy, p.airBalls, p.twinHits, p.shards, p.shardChips, +p.chameleon, +p.short, [...p.brokenValues].join('.'),
+      run.relics.map((r) => `${r.def.id}.${r.counter}.${+!!r.poly}`).join(','), Object.values(run.levels).join('.'),
+      engine.world.ball.speed * engine.speedMul(), Object.values(engine.runView()).join('.'),
+      run.ante, run.wallIdx, run.boss.id, run.bossValue, [...this.played].join('.'), engine.orders.map((o) => +!!o.done).join(''),
+    ].join('|');
   }
 
   /** Nombre de briques candidates du trajet en cours. */

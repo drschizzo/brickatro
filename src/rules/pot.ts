@@ -113,15 +113,17 @@ export class Pot {
     this.shardChips += chips;
   }
 
-  /** Copie de la Main avec d'autres briques (pour évaluer des variantes). */
+  /**
+   * Variante de la Main avec d'autres briques, pour l'évaluer sans la modifier
+   * (elle partage les valeurs cassées de la Main : ne pas y ajouter de brique, utiliser clone()).
+   */
   withBricks(bricks: PotBrick[]): Pot {
-    const p = new Pot();
-    Object.assign(p, this, { bricks, brokenValues: new Set(this.brokenValues) });
-    return p;
+    return Object.assign(new Pot(), this, { bricks });
   }
 
+  /** Copie indépendante de la Main (on peut y ajouter des briques). */
   clone(): Pot {
-    return this.withBricks(this.bricks.map((b) => ({ ...b })));
+    return Object.assign(this.withBricks(this.bricks.map((b) => ({ ...b }))), { brokenValues: new Set(this.brokenValues) });
   }
   addRebound(offset = 0) {
     this.rebounds++;
