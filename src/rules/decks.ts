@@ -66,7 +66,7 @@ export const WALL_REWARD = [3, 4, 5];
  */
 export const ANTE_BASE_V3 = [1000, 2100, 4500, 8600, 14200, 22500, 32500, 47000];
 
-export function wallTarget(ante: number, wallIdx: number, stake: StakeDef, table: number[] = ANTE_BASE) {
+export function wallTarget(ante: number, wallIdx: number, stake: StakeDef, table: readonly number[] = ANTE_BASE) {
   const base = ante <= table.length ? table[ante - 1] : table[table.length - 1] * Math.pow(2.2, ante - table.length);
   return Math.round((base * WALL_MUL[wallIdx] * stake.targetMul) / 10) * 10;
 }

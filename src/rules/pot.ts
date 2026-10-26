@@ -56,6 +56,8 @@ export class Pot {
   brokenValues = new Set<number>();
   /** Relique Caméléon : Feu ≈ Foudre (chaudes) et Eau ≈ Terre (froides). */
   chameleon = false;
+  /** Règles v3 : Suite et Couleur à 4 briques. */
+  short = false;
   /** Renvois sur le bord de la raquette pendant le Lancer. */
   edgeRebounds = 0;
   /** Série : renvois raquette sans encaisser (remise à zéro par une Secousse de sauvetage). */
@@ -92,7 +94,7 @@ export class Pot {
     this.brokenValues = new Set();
   }
   /** Ajoute une brique ; retourne celle qui a été écartée, s'il y en a une. */
-  addBrick(b: PotBrick, chooseDrop: DropChooser = (h) => defaultDrop(h, this.chameleon)): PotBrick | null {
+  addBrick(b: PotBrick, chooseDrop: DropChooser = (h) => defaultDrop(h, this.chameleon, this.short)): PotBrick | null {
     this.bricks.push(b);
     if (b.enh !== 'pierre') this.brokenValues.add(b.value);
     this.broken++;
@@ -156,11 +158,11 @@ export class Pot {
 }
 
 /** Écart par défaut (sans Reliques) : garde la meilleure main de poker, puis les plus fortes valeurs. */
-export function defaultDrop(hand: PotBrick[], chameleon = false): number {
+export function defaultDrop(hand: PotBrick[], chameleon = false, short = false): number {
   let best = 0, bestKey = -Infinity;
   hand.forEach((_, i) => {
     const rest = hand.filter((__, k) => k !== i);
-    const ev = evaluateHand(rest, chameleon);
+    const ev = evaluateHand(rest, chameleon, short);
     const key = figureIndex(ev.figure) * 1000 + ev.scoring.reduce((s, b) => s + (b.enh === 'pierre' ? 50 : b.value), 0);
     if (key > bestKey) { bestKey = key; best = i; }
   });

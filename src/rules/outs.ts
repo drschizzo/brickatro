@@ -1,6 +1,6 @@
 import type { BrickCard } from './bricks';
 import { COLOR_NAMES, COLOR_TAGS, isColorless } from './bricks';
-import { evaluateHand, figureIndex, FIGURES, type FigureDef } from './figures';
+import { evaluate, figureIndex, FIGURES, type FigureDef } from './figures';
 import type { Pot, PotBrick } from './pot';
 
 export interface Outs {
@@ -15,7 +15,7 @@ export interface Outs {
  * d'un cran si on les touchait maintenant (la Main garde ses 5 meilleures briques).
  */
 export function computeOuts(pot: Pot, wall: BrickCard[]): Outs {
-  const cur = figureIndex(evaluateHand(pot.bricks, pot.chameleon).figure);
+  const cur = figureIndex(evaluate(pot).figure);
   const byFigure = new Map<number, BrickCard[]>();
   const useful = new Set<number>();
   for (const c of wall) {
@@ -24,7 +24,7 @@ export function computeOuts(pot: Pot, wall: BrickCard[]): Outs {
     const b: PotBrick = { uid: c.uid, color: c.color, value: c.value, enh: c.enh, edition: c.edition, wallBounces: 0, sideBounces: 0, cause: 'ball', bumped: false, ported: false, fromAbove: false, called: false, trip: 0, star: false, row: 0, col: 0, vein: 0 };
     const sim = pot.clone();
     sim.addBrick(b);
-    const idx = figureIndex(evaluateHand(sim.bricks, pot.chameleon).figure);
+    const idx = figureIndex(evaluate(sim).figure);
     if (idx > cur && idx > 0) {
       useful.add(c.uid);
       byFigure.set(idx, [...(byFigure.get(idx) ?? []), c]);

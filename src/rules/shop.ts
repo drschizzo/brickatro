@@ -3,6 +3,7 @@ import { randomFancyCard, type BrickCard, type BrickColor } from './bricks';
 import { ASTRES, CONSUMABLE_PRICE, RUNES, type ConsumableDef } from './consumables';
 import { RELIC_PRICE, RELICS, sumMod, type RelicDef, type Rarity } from './relics';
 import type { Run } from './run';
+import { hasVeins } from './ruleset';
 import { MAX_TOOLS, TOOLS, type ToolDef } from './tools';
 
 export type PackKind = 'briques' | 'astres' | 'runes';
@@ -28,8 +29,8 @@ const RARITY_WEIGHT: Record<Rarity, number> = { commun: 70, rare: 26, légendair
 export function rollRelics(run: Run, n: number, exclude: Set<string> = new Set()): RelicDef[] {
   const owned = new Set(run.relics.map((r) => r.def.id));
   const tags = new Set(run.relics.flatMap((r) => r.def.tags));
-  // Règles v3 : plus de Filons, le Cartographe n'a plus d'effet
-  const pool = RELICS.filter((d) => !owned.has(d.id) && !exclude.has(d.id) && !(run.ruleset === 'v3' && d.id === 'cartographe') && !(run.ruleset !== 'v3' && d.needsDiscard));
+  // Une Relique sans objet avec ces règles (pas de Filons, pas de Défausse) n'est pas proposée
+  const pool = RELICS.filter((d) => !owned.has(d.id) && !exclude.has(d.id) && !(d.needsVeins && !hasVeins(run.rules)) && !(d.needsDiscard && !run.rules.discardsPerWall));
   const out: RelicDef[] = [];
   while (out.length < n && pool.length) {
     const weights = pool.map((d) => RARITY_WEIGHT[d.rarity] * (d.tags.some((t) => tags.has(t)) ? 3 : 1));
@@ -46,23 +47,23 @@ export function rollRelics(run: Run, n: number, exclude: Set<string> = new Set()
 /** Article Relique : rarement Polychrome (×1.5 Mult en plus), bien plus souvent en mode infini. */
 function relicItem(run: Run, def: RelicDef): ShopItem {
   const poly = run.rng.next() < (run.endless ? 0.25 : 0.04);
-  return { type: 'relic', def, price: RELIC_PRICE[def.rarity] + (poly ? 3 : 0) + (run.tight ? 1 + Math.floor(run.ante / 3) : 0), poly };
+  return { type: 'relic', def, price: RELIC_PRICE[def.rarity] + (poly ? 3 : 0) + (run.rules.tightEconomy ? 1 + Math.floor(run.ante / 3) : 0), poly };
 }
 
 /** Économie resserrée : les prix montent d'1 $ toutes les 3 Antes. */
-const inflation = (run: Run) => (run.tight ? Math.floor(run.ante / 3) : 0);
+const inflation = (run: Run) => (run.rules.tightEconomy ? Math.floor(run.ante / 3) : 0);
 
 /** Runes proposées : sans Défausse (règles d'origine), pas de Rune du Tri. */
-const runePool = (run: Run) => (run.ruleset === 'v3' ? RUNES : RUNES.filter((r) => !r.discards));
+const runePool = (run: Run) => (run.rules.discardsPerWall ? RUNES : RUNES.filter((r) => !r.discards));
 export const rollConsumable = (run: Run): ConsumableDef => (run.rng.next() < 0.55 ? run.rng.pick(runePool(run)) : run.rng.pick(ASTRES));
 
 export function generateShop(run: Run): ShopItem[] {
   const items: ShopItem[] = [];
   const up = inflation(run);
   for (const def of rollRelics(run, 2)) items.push(relicItem(run, def));
-  for (let i = 0; i < (run.tight ? 1 : 2); i++) items.push({ type: 'consumable', def: rollConsumable(run), price: CONSUMABLE_PRICE + up });
+  for (let i = 0; i < (run.rules.tightEconomy ? 1 : 2); i++) items.push({ type: 'consumable', def: rollConsumable(run), price: CONSUMABLE_PRICE + up });
   // Économie resserrée : une balle OU un Outil
-  const gear = run.tight ? (run.rng.next() < 0.5 ? 'ball' : 'tool') : 'both';
+  const gear = run.rules.tightEconomy ? (run.rng.next() < 0.5 ? 'ball' : 'tool') : 'both';
   const ownedBalls = new Set(run.balls.map((b) => b.def.id));
   const balls = BALLS.filter((b) => !ownedBalls.has(b.id));
   if (balls.length && gear !== 'tool') {
@@ -77,7 +78,7 @@ export function generateShop(run: Run): ShopItem[] {
   }
   const packs: PackKind[] = ['briques', 'astres', 'runes'];
   run.rng.shuffle(packs);
-  for (const p of packs.slice(0, run.tight ? 1 : 2)) items.push({ type: 'pack', pack: p, price: PACKS[p].price + up + (run.tight ? 1 : 0) });
+  for (const p of packs.slice(0, run.rules.tightEconomy ? 1 : 2)) items.push({ type: 'pack', pack: p, price: PACKS[p].price + up + (run.rules.tightEconomy ? 1 : 0) });
   return items;
 }
 
@@ -86,7 +87,7 @@ export function rerollShop(run: Run, items: ShopItem[]): ShopItem[] {
   const keep = items.filter((i) => i.type === 'ball' || i.type === 'tool' || i.type === 'pack');
   const fresh: ShopItem[] = [];
   for (const def of rollRelics(run, 2)) fresh.push(relicItem(run, def));
-  for (let i = 0; i < (run.tight ? 1 : 2); i++) fresh.push({ type: 'consumable', def: rollConsumable(run), price: CONSUMABLE_PRICE + inflation(run) });
+  for (let i = 0; i < (run.rules.tightEconomy ? 1 : 2); i++) fresh.push({ type: 'consumable', def: rollConsumable(run), price: CONSUMABLE_PRICE + inflation(run) });
   return [...fresh, ...keep];
 }
 

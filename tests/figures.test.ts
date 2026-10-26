@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateHand as evalGlobal, setShortFigures } from '../src/rules/figures';
+import { evaluateHand } from '../src/rules/figures';
 import { pb } from './helpers';
 
-const evaluateHand = (hand: ReturnType<typeof pb>[], chameleon = false, short = false) => {
-  setShortFigures(short);
-  return evalGlobal(hand, chameleon);
-};
 const fig = (hand: ReturnType<typeof pb>[], short = false, chameleon = false) => evaluateHand(hand, chameleon, short).figure?.id ?? null;
 
 describe('evaluateHand (Suite / Couleur à 5)', () => {

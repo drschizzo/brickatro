@@ -1,5 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { setShortFigures } from '../src/rules/figures';
+import { describe, expect, it } from 'vitest';
 import { newLevels } from '../src/rules/figures';
 import { Pot } from '../src/rules/pot';
 import { RELIC_BY_ID, type RelicInstance } from '../src/rules/relics';
@@ -15,8 +14,6 @@ function score(bricks: ReturnType<typeof pb>[], relicIds: string[] = [], tweak: 
   const relics: RelicInstance[] = relicIds.map((id) => ({ def: RELIC_BY_ID[id], counter: 0 }));
   return computeScore({ pot, relics, levels: newLevels(), catchOffset: null, ballSpeed: 13, run: { ...RUN, relicCount: relics.length }, roll: null });
 }
-
-beforeEach(() => setShortFigures(false));
 
 describe('computeScore', () => {
   it('Main vide : 0', () => {

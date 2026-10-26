@@ -1,7 +1,7 @@
 import { fmt } from '../core/math';
 import type { BossDef } from '../rules/bosses';
 import { COLOR_NAMES, type BrickCard } from '../rules/bricks';
-import { FIGURES, figureValue, type FigureId, type FigureLevels } from '../rules/figures';
+import { figureDesc, FIGURES, figureValue, type FigureId, type FigureLevels } from '../rules/figures';
 import type { PotBrick } from '../rules/pot';
 import { MAX_RELICS, type RelicInstance } from '../rules/relics';
 import type { BallInstance } from '../rules/run';
@@ -130,11 +130,11 @@ export class Hud {
   }
 
   /** Les descriptions de Figures dépendent du jeu de règles (Suite et Couleur à 4 en v3). */
-  refreshFigureDescs() {
+  refreshFigureDescs(short: boolean) {
     for (const f of FIGURES) {
       const r = this.figRows.get(f.id)!;
-      r.row.title = f.desc;
-      r.row.querySelector('.fdesc')!.textContent = f.desc;
+      r.row.title = figureDesc(f, short);
+      r.row.querySelector('.fdesc')!.textContent = figureDesc(f, short);
     }
   }
 
@@ -184,11 +184,11 @@ export class Hud {
   }
 
   /** Ce qu'il faut toucher pour améliorer la Main (les "outs"). */
-  setOuts(targets: { figure: string; need: string }[], handEmpty: boolean, fog: boolean, warning: string | null, orders: Order[] = [], v3 = false) {
+  setOuts(targets: { figure: string; need: string }[], handEmpty: boolean, fog: boolean, warning: string | null, orders: Order[] = [], bestOfTrip = false) {
     let html: string;
     if (warning && !handEmpty) html = `<div class="label">⚠ Attention</div><div class="out warn">${warning}</div>`;
     else if (fog) html = '<div class="label">Brouillard</div><div class="out">Impossible de lire le mur…</div>';
-    else if (handEmpty && v3) html = '<div class="label">Objectif</div><div class="out">Quand la balle revient sur ta raquette, la <span class="t-k">meilleure brique</span> cassée depuis le rebond précédent entre dans ta Main. Les autres sont des <span class="t-k">Éclats</span> : des Jetons en plus.</div>';
+    else if (handEmpty && bestOfTrip) html = '<div class="label">Objectif</div><div class="out">Quand la balle revient sur ta raquette, la <span class="t-k">meilleure brique</span> cassée depuis le rebond précédent entre dans ta Main. Les autres sont des <span class="t-k">Éclats</span> : des Jetons en plus.</div>';
     else if (handEmpty) html = '<div class="label">Objectif</div><div class="out">Casse des briques pour former une <span class="t-k">main de poker</span>. La Main garde tes <span class="t-k">5 meilleures</span> briques.</div>';
     else if (!targets.length) html = '<div class="label">Pour monter</div><div class="out dim">Aucune brique du mur n\'améliore ta Main. Encaisse ?</div>';
     else html = '<div class="label">🎯 Pour monter</div>' + targets.map((t) => `<div class="out"><b>${t.figure}</b> ← ${rich(t.need)}</div>`).join('');

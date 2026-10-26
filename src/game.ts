@@ -8,7 +8,8 @@ import { loadProfile, saveProfile } from './meta/save';
 import { COLOR_NAMES, colorText, ENH, newCard, type BrickCard, type BrickColor } from './rules/bricks';
 import type { AstreDef, RuneDef } from './rules/consumables';
 import { STAKES, WALL_NAMES, type DeckDef } from './rules/decks';
-import { FIGURE_BY_ID, figureIndex } from './rules/figures';
+import { FIGURE_BY_ID, figureDesc, figureIndex } from './rules/figures';
+import { RULESETS } from './rules/ruleset';
 import { LAYOUT_BY_ID } from './rules/layouts';
 import { PROWESS } from './rules/prowess';
 import { activeBoss, isBossWall, targetOf } from './rules/run';
@@ -65,7 +66,8 @@ const AIM_DIM = new THREE.Color('#9fb4ff').multiplyScalar(0.8);
 export class Game {
   private fxRng = new Rng(Date.now());
   private world = new World(this.fxRng);
-  private engine = new Engine(this.world);
+  // Règles v3 par défaut ; ?classic pour rejouer avec les règles d'origine
+  private engine = new Engine(this.world, RULESETS[new URLSearchParams(location.search).has('classic') ? 'classic' : 'v3']);
   private stage: Stage;
   private hud = new Hud();
   private screens: Screens;
@@ -128,9 +130,7 @@ export class Game {
   private emptySel = new Set<number>();
 
   constructor(canvas: HTMLCanvasElement) {
-    // Règles v3 par défaut ; ?classic pour rejouer avec les règles d'origine
-    this.engine.applyRuleset(new URLSearchParams(location.search).has('classic') ? 'classic' : 'v3');
-    this.hud.refreshFigureDescs();
+    this.hud.refreshFigureDescs(this.engine.rules.shortFigures);
     this.stage = new Stage(canvas);
     this.bricks = new BrickRenderer(this.world.bricks);
     this.veins = new VeinRenderer(this.world.bricks);
@@ -839,7 +839,7 @@ export class Game {
 
     en.on('brick', ({ brick, card, eclipsed, out, tags, shard, money, bomb, cause }) => {
       // v3 : une brique touchée par la balle est candidate à la Main (choisie au renvoi), on montre sa valeur
-      const candidate = shard && this.engine.headMode === 'best' && (cause === 'ball' || cause === 'pierce');
+      const candidate = shard && this.run?.rules.headMode === 'best' && (cause === 'ball' || cause === 'pierce');
       const lead = candidate && this.engine.tripLead()?.pb.uid === card.uid;
       if (shard && !lead) {
         // Éclat : seulement des Jetons (une candidate battue par une meilleure brique du trajet aussi)
@@ -1152,7 +1152,7 @@ export class Game {
       this.stage.ripple3D(b.x, b.y, 0.5);
       this.stage.punch(0.025 + idx * 0.006);
       this.sparks.burst(b.x, b.y, GOLD, 24, 1.1);
-      this.hud.banner(res.figure.name.toUpperCase() + ' !', `${res.figure.desc}`, '#fe5f55');
+      this.hud.banner(res.figure.name.toUpperCase() + ' !', figureDesc(res.figure, run.rules.shortFigures), '#fe5f55');
       this.sfx.figure(idx);
       this.stage.shake.add(0.3);
       this.stage.kick(0.5);
@@ -1166,12 +1166,12 @@ export class Game {
       { streak: this.pot.streak, mult: seriesMult(this.pot.streak, run.relics) },
       { frenzy: this.pot.frenzy, air: this.world.extras.length, toFrenzy: frenzyStreak(run.relics) - this.pot.streak });
     this.hud.setHand(pot.bricks, pot.size, res.scoringUids, lead?.pb.uid ?? null);
-    this.hud.setShards(run.ruleset === 'v3' ? pot.shards : 0, pot.shardChips, this.engine.tripCount);
+    this.hud.setShards(run.rules.headRule ? pot.shards : 0, pot.shardChips, this.engine.tripCount);
     // Outs : quelles briques du mur feraient monter la Main
     const fog = !!activeBoss(run)?.fog;
     const outs = this.engine.outs();
     this.useful = fog ? new Set() : outs.useful;
-    this.hud.setOuts(outs.targets.map((t) => ({ figure: t.figure.name, need: t.need })), pot.empty, fog, res.blocked, this.engine.orders, run.ruleset === 'v3');
+    this.hud.setOuts(outs.targets.map((t) => ({ figure: t.figure.name, need: t.need })), pot.empty, fog, res.blocked, this.engine.orders, run.rules.headRule && run.rules.headMode === 'best');
   }
 
   /** La séquence d'encaissement : chaque étape du pipeline est rejouée et "sentie". */

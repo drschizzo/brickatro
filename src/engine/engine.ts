@@ -1,14 +1,15 @@
 import { Emitter } from '../core/events';
 import { cloneCard, isColorless, LIVING, newCard, type BrickCard, type BrickColor, type Enh } from '../rules/bricks';
 import { applyRune, type AstreDef, type RuneDef } from '../rules/consumables';
-import { ANTE_BASE, ANTE_BASE_V3, WIN_ANTE, type DeckDef } from '../rules/decks';
-import { evaluateHand, FIGURE_BY_ID, FIGURE_RULES, figureIndex, setShortFigures, type FigureDef, type FigureId } from '../rules/figures';
+import { WIN_ANTE, type DeckDef } from '../rules/decks';
+import { evaluate, FIGURE_BY_ID, figureIndex, type FigureDef, type FigureId } from '../rules/figures';
 import { LAYOUT_BY_ID, pickLayout, type LayoutDef } from '../rules/layouts';
 import { computeOuts, type Outs } from '../rules/outs';
 import { HAND_SIZE, Pot, type DropChooser, type PotBrick } from '../rules/pot';
 import { PROWESS } from '../rules/prowess';
 import { DISCARD_BRICKS, MAX_TOOLS, type ToolDef } from '../rules/tools';
-import { cutBlocks, cutSegments, DEFAULT_WALL_STYLE, fillBlock, fillSegment, planVeins, type WallStyleCfg } from '../rules/veins';
+import { cutBlocks, cutSegments, fillBlock, fillSegment, planVeins } from '../rules/veins';
+import { RULESETS, type Rules } from '../rules/ruleset';
 import { hasFlag, MAX_RELICS, prodMod, sumMod, type RelicDef } from '../rules/relics';
 import {
   activeBoss, advanceWall, cashOut, createRun, currentTarget, isBossWall, rescueCost, wallDiscards, wallLancers, wallSecousses, type Run,
@@ -85,14 +86,13 @@ export const PEEK = 3;
 /** Gain d'argent quand une Piñata casse. */
 const PINATA_MONEY = 3;
 
+/** Brique candidate du trajet (règle v3) : déjà comptée en Éclat, elle peut encore entrer dans la Main. */
+export interface TripCand { pb: PotBrick; chips: number; x: number; y: number }
+
 /**
  * Moteur de jeu sans rendu : toutes les règles d'un run (murs, Main, Boss, boutique…).
  * Partagé entre le jeu (qui ajoute le "juice") et le banc de simulation (bots).
  */
-export type Ruleset = 'classic' | 'v3';
-/** Brique candidate du trajet (règle v3) : déjà comptée en Éclat, elle peut encore entrer dans la Main. */
-export interface TripCand { pb: PotBrick; chips: number; x: number; y: number }
-
 export class Engine {
   readonly events = new Emitter<EngineEvents>();
   readonly pot = new Pot();
@@ -101,8 +101,6 @@ export class Engine {
   cards = new Map<number, BrickCard>();
   wallSlots: number[] = [];
   layout: LayoutDef | null = null;
-  /** Pose des briques (le banc peut la changer pour comparer). */
-  wallStyle: WallStyleCfg = { ...DEFAULT_WALL_STYLE };
   played = new Set<FigureId>();
   selectedBall = 0;
   /** Emplacements visés par une Rune du Trait : pulvérisés au prochain Lancer. */
@@ -120,76 +118,31 @@ export class Engine {
   /** Récompense si on passe le prochain Mur (null si c'est un Boss). */
   skipReward: SkipReward | null = null;
   rerollCount = 0;
-  /**
-   * Règle « brique de tête » (prototype) : seule la 1re brique touchée par la balle après le lancer
-   * ou un renvoi entre dans la Main ; les autres (ricochets, explosions) sont des Éclats.
-   */
-  headRule = false;
-  /**
-   * 'first' : la 1re brique touchée du trajet entre dans la Main.
-   * 'best'  : à la fin du trajet (renvoi ou encaissement), la meilleure brique cassée par la balle pendant ce trajet entre dans la Main.
-   */
-  headMode: 'first' | 'best' = 'first';
-  /** Économie resserrée (prototype), copiée dans run.tight au début du run. */
-  tightEconomy = false;
   /** Lancer de secours déjà acheté pendant ce Mur. */
   rescueUsed = false;
-  /** Commandes du Mur (prototype : activées par ordersOn). */
-  ordersOn = false;
+  /** Commandes du Mur (si les règles en ont). */
   orders: Order[] = [];
-  /** Défausses par Mur (0 = pas de Défausse). */
-  discardsPerWall = 0;
-  /** Jokers posés sur le front du mur à chaque pose (prototype, 0 = aucun). */
-  jokersPerWall = 0;
   /** Mode 'best' : briques candidates du trajet en cours (déjà comptées comme Éclats). */
   private tripCands: TripCand[] = [];
-  /** Jetons d'un Éclat, en part de la valeur de la brique. */
-  shardRate = 0.5;
-  /**
-   * Jeu de règles :
-   * - classic : la Main garde les 5 meilleures briques cassées, Filons, économie d'origine ;
-   * - v3 : une carte par trajet (la meilleure brique cassée par la balle), les autres sont des Éclats ;
-   *   Suite et Couleur à 4 briques ; 1 Joker sur le front du mur ; Commandes ; économie resserrée.
-   */
-  ruleset: Ruleset = 'classic';
-  applyRuleset(name: Ruleset) {
-    const v3 = name === 'v3';
-    this.ruleset = name;
-    setShortFigures(v3);
-    this.headRule = v3;
-    this.headMode = v3 ? 'best' : 'first';
-    this.shardRate = 0.5;
-    this.jokersPerWall = v3 ? 1 : 0;
-    this.discardsPerWall = v3 ? 2 : 0;
-    this.ordersOn = v3;
-    this.tightEconomy = v3;
-    this.anteBase = v3 ? ANTE_BASE_V3 : ANTE_BASE;
-    this.targetScale = 1;
-    // Les Filons ne pilotaient pas les Figures (banc) : les Commandes les remplacent
-    this.wallStyle = v3 ? { ...DEFAULT_WALL_STYLE, style: 'random' } : { ...DEFAULT_WALL_STYLE };
-  }
-
-  /** Objectifs de base par Ante du jeu de règles, et échelle supplémentaire (banc). */
-  anteBase = ANTE_BASE;
-  targetScale = 1;
   /** La brique de tête du trajet en cours est déjà prise. */
   private headTaken = false;
   private explosions: { id: number; t: number }[] = [];
   private refillIn = -1;
   private settleIn = -1;
 
-  constructor(readonly world: World) {
+  /** Jeu de règles (figé). Il s'applique au prochain run. */
+  rules: Rules;
+
+  constructor(readonly world: World, rules: Rules = RULESETS.v3) {
+    this.rules = rules;
     this.bindWorld();
   }
 
   // ───────────────────────── Run / murs ─────────────────────────
 
   startRun(deck: DeckDef, stake: number, seed: number) {
-    this.run = createRun(deck, stake, seed);
-    this.run.tight = this.tightEconomy;
-    this.run.ruleset = this.ruleset;
-    this.run.targetScale = this.targetScale;
-    this.run.anteBase = this.anteBase;
+    this.run = createRun(deck, stake, seed, this.rules);
+    this.pot.short = this.rules.shortFigures;
     this.splitNext = 0;
     this.startWall();
   }
@@ -222,7 +175,7 @@ export class Engine {
     w.score = 0;
     w.lancersMax = w.lancersLeft = wallLancers(run);
     w.secoussesMax = w.secoussesLeft = wallSecousses(run);
-    w.discardsMax = w.discardsLeft = wallDiscards(run, this.discardsPerWall);
+    w.discardsMax = w.discardsLeft = wallDiscards(run);
     w.drawPile = run.rng.shuffle([...run.cards]);
     w.discard = [];
     const boss = activeBoss(run);
@@ -235,7 +188,7 @@ export class Engine {
     this.rescueUsed = false;
     this.layWall();
     this.applyWallMod();
-    this.orders = this.ordersOn ? rollOrders(run.rng, this.wallCards(), run.ante, FIGURE_RULES.short) : [];
+    this.orders = run.rules.orders ? rollOrders(run.rng, this.wallCards(), run.ante, run.rules.shortFigures) : [];
     this.pot.size = boss?.handSize ?? HAND_SIZE;
     this.pot.reset();
     this.played = new Set();
@@ -257,7 +210,7 @@ export class Engine {
   /** Remplit les emplacements du motif avec des briques de la pioche. */
   layWall() {
     this.layCards();
-    if (this.jokersPerWall > 0) this.placeJokers();
+    if (this.run!.rules.jokersPerWall > 0) this.placeJokers();
   }
 
   /** Jokers : la brique la plus basse de quelques colonnes devient Joker (copie limitée à ce Mur, le deck ne change pas). */
@@ -273,7 +226,7 @@ export class Engine {
         }
       }
     }
-    for (const b of this.run!.rng.shuffle(front).slice(0, this.jokersPerWall)) {
+    for (const b of this.run!.rng.shuffle(front).slice(0, this.run!.rules.jokersPerWall)) {
       const card = { ...this.cards.get(b.uid)!, enh: 'joker' as const };
       this.cards.set(card.uid, card);
       this.world.setBrick(b.id, card);
@@ -296,17 +249,16 @@ export class Engine {
     return best;
   }
 
-  // ───────────────────────── Briques voilées (prototype) ─────────────────────────
-
   private layCards() {
-    const { rng } = this.run!;
-    if (this.wallStyle.style === 'random') {
+    const { rng, rules } = this.run!;
+    const wallStyle = rules.wallStyle;
+    if (wallStyle.style === 'random') {
       for (const id of rng.shuffle([...this.wallSlots])) this.world.setBrick(id, this.draw());
       return;
     }
     const bricks = this.world.bricks;
     const draw = (pred?: (c: BrickCard) => boolean) => (pred ? this.drawWhere(pred) : this.draw());
-    const { style, order } = this.wallStyle;
+    const { style, order } = wallStyle;
     let slots = this.wallSlots.map((id) => bricks[id]);
     let vein = 0;
     if (style === 'blocks' || style === 'mixed') {
@@ -323,7 +275,7 @@ export class Engine {
       slots = rest.map((s) => bricks[s.id]);
     }
     // Restes des blocs : Filons de rangée (mixed) ou bruit (blocks)
-    const rowCfg = style === 'blocks' ? { ...this.wallStyle, style: 'veins' as const, order: 0 } : style === 'mixed' ? { ...this.wallStyle, style: 'veins' as const } : this.wallStyle;
+    const rowCfg = style === 'blocks' ? { ...wallStyle, style: 'veins' as const, order: 0 } : style === 'mixed' ? { ...wallStyle, style: 'veins' as const } : wallStyle;
     const segs = cutSegments(slots, (r, c) => bricks[r * COLS + c].kind === 'block');
     for (const seg of planVeins(segs, rowCfg, rng)) {
       const cards = fillSegment(seg, rowCfg.style, draw);
@@ -377,7 +329,7 @@ export class Engine {
   /** Première carte du dessus de la pioche qui vérifie `pred`, sinon la carte du dessus. */
   private drawWhere(pred: (c: BrickCard) => boolean): BrickCard | null {
     const pile = this.wall.drawPile;
-    for (let i = pile.length - 1; i >= Math.max(0, pile.length - this.wallStyle.lookahead); i--) {
+    for (let i = pile.length - 1; i >= Math.max(0, pile.length - this.run!.rules.wallStyle.lookahead); i--) {
       if (pred(pile[i])) return pile.splice(i, 1)[0];
     }
     return this.draw();
@@ -455,7 +407,7 @@ export class Engine {
   /** Lancer de secours : proposé quand le Mur est perdu, 1 fois par Mur (économie resserrée). */
   get rescuePrice(): number | null {
     const run = this.run;
-    if (!run?.tight || this.rescueUsed || this.wall.lancersLeft > 0 || this.wall.score >= this.wall.target) return null;
+    if (!run?.rules.tightEconomy || this.rescueUsed || this.wall.lancersLeft > 0 || this.wall.score >= this.wall.target) return null;
     return rescueCost(run);
   }
 
@@ -789,11 +741,12 @@ export class Engine {
       // Touchée par la balle (rebond ou traversée de la Lourde), pas par une explosion
       const touched = cause === 'ball' || cause === 'pierce';
       // Règle « brique de tête » : la viser est la règle, « Dans le mille » n'a plus lieu d'être
-      const called = !this.headRule && touched && brick.id === this.aimedSlot;
+      const { headRule, headMode } = run.rules;
+      const called = !headRule && touched && brick.id === this.aimedSlot;
       if (touched) this.aimedSlot = -1;
-      const best = this.headRule && this.headMode === 'best';
-      const shard = this.headRule && cause !== 'laser' && (!touched || this.headTaken || best);
-      if (this.headRule && touched) this.headTaken = true;
+      const best = headRule && headMode === 'best';
+      const shard = headRule && cause !== 'laser' && (!touched || this.headTaken || best);
+      if (headRule && touched) this.headTaken = true;
       const pb: PotBrick = {
         uid: card.uid, color: card.color, value: card.value, enh: card.enh, edition: card.edition, cause,
         wallBounces: hit.wallBounces, sideBounces: hit.sideBounces, bumped: hit.bumped, ported: hit.ported, fromAbove: hit.fromAbove,
@@ -947,10 +900,9 @@ export class Engine {
     });
   }
 
-  /** Mode 'best' : la meilleure brique du trajet quitte les Éclats et entre dans la Main. */
   /** Jetons d'un Éclat. */
   shardChips(card: { value: number; enh: Enh }) {
-    return card.enh === 'pierre' ? 10 : Math.max(1, Math.round(card.value * this.shardRate));
+    return card.enh === 'pierre' ? 10 : Math.max(1, Math.round(card.value * this.rules.shardRate));
   }
 
   /** Mode 'best' : la candidate du trajet en cours qui entrerait dans la Main si le trajet finissait maintenant (Joker résolu). */
@@ -1009,7 +961,7 @@ export class Engine {
   /** Full ou mieux : onde de choc qui pulvérise les briques autour (une fois par Lancer). */
   private checkShock(brick: Brick) {
     if (this.shockDone) return;
-    const fig = evaluateHand(this.pot.bricks, this.pot.chameleon).figure;
+    const fig = evaluate(this.pot).figure;
     if (figureIndex(fig) < SHOCK_FIGURE) return;
     this.shockDone = true;
     for (let r = -1; r <= 1; r++) for (let c = -1; c <= 1; c++) {
@@ -1078,7 +1030,7 @@ export class Engine {
   atelier: AtelierVisit = { removed: false, retailed: false };
 
   get atelierOpen() {
-    return this.run?.ruleset === 'v3';
+    return !!this.run?.rules.atelier;
   }
 
   /** Retire une brique du deck. */

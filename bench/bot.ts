@@ -3,11 +3,12 @@
  * avec une adresse imparfaite paramétrable, et une politique de boutique.
  */
 import { Rng } from '../src/core/rng';
-import { Engine, type LancerEnd, type Ruleset } from '../src/engine/engine';
+import { Engine, type LancerEnd } from '../src/engine/engine';
+import { makeRules, type Rules, type RulesetId } from '../src/rules/ruleset';
 import { RUNES, type RuneDef } from '../src/rules/consumables';
 import { DECKS, WALL_NAMES } from '../src/rules/decks';
 import type { BrickCard } from '../src/rules/bricks';
-import { evaluateHand, FIGURE_RULES, type FigureId } from '../src/rules/figures';
+import { evaluateHand, type FigureId } from '../src/rules/figures';
 import type { WallStyleCfg } from '../src/rules/veins';
 import { DISCARD_BRICKS, MAX_TOOLS, TOOL_BY_ID, type ToolDef } from '../src/rules/tools';
 import { Pot, type PotBrick } from '../src/rules/pot';
@@ -82,7 +83,7 @@ export interface BotConfig {
   /** Règle « brique de tête » (Jetons d'un Éclat en part de sa valeur) ; null = règle actuelle. */
   head?: { shardRate: number; mode?: 'first' | 'best' } | null;
   /** Jeu de règles de base (défaut v3). */
-  ruleset?: Ruleset;
+  ruleset?: RulesetId;
   /** Joueur « casse-briques » : vise une brique atteignable au hasard, sans chercher de Figure. */
   naive?: boolean;
   /** Économie resserrée. */
@@ -172,26 +173,15 @@ export class Bot {
   /** La décision se prend avant un renvoi raquette : la Série aura un cran de plus. */
   private bounceAhead = false;
 
+  private get rules() {
+    return this.engine.rules;
+  }
+
   constructor(private cfg: BotConfig, private seed: number) {
     this.rng = new Rng(seed ^ 0x9e3779b9);
     this.world = new World(this.rng);
-    this.engine = new Engine(this.world);
+    this.engine = new Engine(this.world, botRules(cfg));
     this.engine.events.on('lancerEnd', (e) => (this.end = e));
-    // Jeu de règles, puis les surcharges données en option (undefined = valeur du jeu de règles)
-    this.engine.applyRuleset(cfg.ruleset ?? 'v3');
-    if (cfg.wall) this.engine.wallStyle = { ...cfg.wall };
-    if (cfg.targetScale !== undefined) this.engine.targetScale = cfg.targetScale;
-    if (cfg.jokers !== undefined) this.engine.jokersPerWall = cfg.jokers;
-    if (cfg.discards !== undefined) this.engine.discardsPerWall = cfg.discards;
-    if (cfg.orders !== undefined) this.engine.ordersOn = cfg.orders;
-    if (cfg.tight !== undefined) this.engine.tightEconomy = cfg.tight;
-    if (cfg.short !== undefined) FIGURE_RULES.short = cfg.short;
-    if (cfg.head === null) this.engine.headRule = false;
-    else if (cfg.head) {
-      this.engine.headRule = true;
-      this.engine.shardRate = cfg.head.shardRate;
-      if (cfg.head.mode) this.engine.headMode = cfg.head.mode;
-    }
     if (cfg.assistDeg !== null) this.world.aimAssist = (cfg.assistDeg * Math.PI) / 180;
     this.engine.events.on('brick', ({ brick, card }) => {
       if (brick.vein) this.veinOf.set(card.uid, `${this.wallSeq}:${brick.vein}`);
@@ -492,7 +482,7 @@ export class Bot {
   private followUps(slot: number, reach: number[]): number[] {
     const bricks = this.world.bricks;
     // Brique de tête : les ricochets ne comptent pas, seule une prochaine visée remplit la Main
-    if (this.engine.headRule) return reach.filter((id) => id !== slot && !this.engine.lasered.has(id) && bricks[id].alive);
+    if (this.rules.headRule) return reach.filter((id) => id !== slot && !this.engine.lasered.has(id) && bricks[id].alive);
     const b = bricks[slot];
     const out = new Set<number>(reach);
     for (const dc of [-2, -1, 1, 2]) {
@@ -514,7 +504,7 @@ export class Bot {
     const pot = clonePot(this.base);
     if (this.bounceAhead) { pot.streak++; pot.rebounds++; }
     // Brique de tête : chaque brique de plus coûte un renvoi (un cran de Série)
-    if (this.engine.headRule) { pot.streak += slots.length - 1; pot.rebounds += slots.length - 1; }
+    if (this.rules.headRule) { pot.streak += slots.length - 1; pot.rebounds += slots.length - 1; }
     const run = this.engine.run!;
     const boss = activeBoss(run);
     for (const slot of slots) {
@@ -524,7 +514,7 @@ export class Bot {
       if (boss?.eclipse && card.color === run.eclipseColor && card.enh !== 'pierre') continue;
       pot.addBrick(this.engine.resolveJoker({
         uid: card.uid, color: card.color, value: card.value, enh: card.enh, edition: card.edition, cause: 'ball',
-        wallBounces: 0, sideBounces: 0, bumped: false, ported: false, fromAbove: false, trip: pot.trip, star: br.star, called: !this.engine.headRule && this.bounceAhead && slot === slots[0],
+        wallBounces: 0, sideBounces: 0, bumped: false, ported: false, fromAbove: false, trip: pot.trip, star: br.star, called: !this.rules.headRule && this.bounceAhead && slot === slots[0],
         row: br.row, col: br.col, vein: br.vein,
       }, pot), this.engine.dropChooser(pot));
     }
@@ -689,7 +679,7 @@ export class Bot {
       for (let i = 0; i + Math.min(5, ids.length) <= ids.length; i++) windows.push(ids.slice(i, i + 5));
     }
     const quality = () => windows.reduce((s, w) => {
-      const f = evaluateHand(w.map((id) => at.get(id)!) as unknown as PotBrick[]).figure;
+      const f = evaluateHand(w.map((id) => at.get(id)!) as unknown as PotBrick[], false, this.rules.shortFigures).figure;
       return s + (f ? f.chips * f.mult : 0);
     }, 0);
     const base = quality();
@@ -908,6 +898,25 @@ export class Bot {
   }
 }
 
+/** Jeu de règles du bot : celui de la config, puis les surcharges données en option (undefined = valeur du jeu de règles). */
+function botRules(cfg: BotConfig): Rules {
+  const o: { -readonly [K in keyof Rules]?: Rules[K] } = {};
+  if (cfg.wall) o.wallStyle = { ...cfg.wall };
+  if (cfg.targetScale !== undefined) o.targetScale = cfg.targetScale;
+  if (cfg.jokers !== undefined) o.jokersPerWall = cfg.jokers;
+  if (cfg.discards !== undefined) o.discardsPerWall = cfg.discards;
+  if (cfg.orders !== undefined) o.orders = cfg.orders;
+  if (cfg.tight !== undefined) o.tightEconomy = cfg.tight;
+  if (cfg.short !== undefined) o.shortFigures = cfg.short;
+  if (cfg.head === null) o.headRule = false;
+  else if (cfg.head) {
+    o.headRule = true;
+    o.shardRate = cfg.head.shardRate;
+    if (cfg.head.mode) o.headMode = cfg.head.mode;
+  }
+  return makeRules(cfg.ruleset ?? 'v3', o);
+}
+
 function clonePot(src: Pot): Pot {
   const p = new Pot();
   p.size = src.size;
@@ -923,6 +932,7 @@ function clonePot(src: Pot): Pot {
   p.streak = src.streak;
   p.shakes = src.shakes;
   p.chameleon = src.chameleon;
+  p.short = src.short;
   p.brokenValues = new Set(src.brokenValues);
   return p;
 }

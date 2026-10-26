@@ -47,6 +47,8 @@ export interface RelicDef {
   discardSize?: number;
   /** Sans Défausse (règles d'origine), la Relique ne sert à rien : pas proposée en boutique. */
   needsDiscard?: boolean;
+  /** Sans Filons (pose aléatoire), la Relique ne sert à rien : pas proposée en boutique. */
+  needsVeins?: boolean;
   interestCap?: number;
   rerollDiscount?: number;
   keepOnLoss?: number;
@@ -154,7 +156,7 @@ export const RELICS: RelicDef[] = [
     },
   },
   {
-    id: 'cartographe', name: 'Cartographe', glyph: '🗺', rarity: 'commun', tags: ['espace'],
+    id: 'cartographe', name: 'Cartographe', glyph: '🗺', rarity: 'commun', tags: ['espace'], needsVeins: true,
     desc: () => '{m}+3 Mult{/} par brique de la Main venue d\'un {k}Filon{/}, {x}×1.5 Mult{/} si 3 viennent du même',
     score: (ctx, acc) => {
       const v = new Map<number, number>();
