@@ -47,7 +47,7 @@ Les données brutes de chaque run sont écrites dans `bench/out/*.json`.
 
 ## Règles v3 (défaut)
 
-`Engine.applyRuleset('v3')` : à chaque renvoi (ou à l'encaissement), la meilleure brique cassée par la balle pendant le trajet entre dans la Main, les autres sont des Éclats (+Jetons) ; Suite et Couleur à 4 briques ; 1 Joker par pose de mur ; 2 Commandes par Mur ; Atelier en boutique (retirer une brique $2 +$1 toutes les 2, minimum 28 briques ; retailler ±1 $1 ; un de chaque par visite) ; économie resserrée (récompenses 2/3/4, pas de Démolition, 1 consommable et 1 pack en boutique, Lancer de secours) ; objectifs `ANTE_BASE_V3`. En jeu, `?classic` rejoue les règles d'origine.
+`RULESETS.v3` (`src/rules/ruleset.ts`) : à chaque renvoi (ou à l'encaissement), la meilleure brique cassée par la balle pendant le trajet entre dans la Main, les autres sont des Éclats (+Jetons) ; Suite et Couleur à 4 briques ; 1 Joker par pose de mur ; 2 Commandes par Mur ; Atelier en boutique (retirer une brique $2 +$1 toutes les 2, minimum 28 briques ; retailler ±1 $1 ; un de chaque par visite) ; économie resserrée (récompenses 2/3/4, pas de Démolition, 1 consommable et 1 pack en boutique, Lancer de secours) ; objectifs `ANTE_BASE_V3`. En jeu, `?classic` rejoue les règles d'origine.
 
 ## Lire le rapport
 
