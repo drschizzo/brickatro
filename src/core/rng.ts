@@ -4,6 +4,13 @@ export class Rng {
   constructor(seed: number) {
     this.s = seed >>> 0;
   }
+  /** État interne (sauvegarde d'un run) : un Rng recréé avec cet état reprend la même suite. */
+  get state(): number {
+    return this.s;
+  }
+  static fromState(state: number): Rng {
+    return new Rng(state);
+  }
   next(): number {
     let t = (this.s += 0x6d2b79f5);
     t = Math.imul(t ^ (t >>> 15), t | 1);

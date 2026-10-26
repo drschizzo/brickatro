@@ -12,6 +12,7 @@ import {
 } from '../rules/run';
 import { frenzyStreak, type RunView, type ScoreResult } from '../rules/scoring';
 import { rollOrders, type Order } from '../rules/orders';
+import { loadRun, saveRun, type RunSave } from '../rules/run-save';
 import { COLS, PADDLE_W, predictPath, ROWS, type Brick, type BreakCause, type SimInput, type TiltKind, World } from '../sim/world';
 import { Consumables } from './consumables';
 import { Hand } from './hand';
@@ -73,6 +74,9 @@ export type EngineEvents = {
   tripCard: { uid: number; x: number; y: number; color: BrickColor };
 };
 
+/** Point de reprise d'un run : l'état juste avant le début d'un Mur. */
+export interface EngineSave { run: RunSave; splitNext: number }
+
 /** Délai entre la dernière brique cassée et la repose du mur (secondes de jeu). */
 const REFILL_DELAY = 0.25;
 /** Délai avant que les briques d'un mur à gravité tombent dans la case libérée. */
@@ -101,6 +105,8 @@ export class Engine {
   rescueUsed = false;
   /** Commandes du Mur (si les règles en ont). */
   orders: Order[] = [];
+  /** Point de reprise du Mur en cours (pris au début du Mur). */
+  checkpoint: EngineSave | null = null;
 
   readonly hand: Hand;
   readonly deck: WallDeck;
@@ -137,6 +143,17 @@ export class Engine {
     this.startWall();
   }
 
+  /** Reprend un run sauvegardé au début de son Mur. Retourne false si la sauvegarde n'est plus lisible. */
+  resume(save: EngineSave): boolean {
+    const run = loadRun(save.run);
+    if (!run) return false;
+    this.run = run;
+    this.pot.short = run.rules.shortFigures;
+    this.consumables.splitNext = save.splitNext;
+    this.startWall();
+    return true;
+  }
+
   get endless() {
     return !!this.run?.endless;
   }
@@ -146,6 +163,7 @@ export class Engine {
 
   startWall(): LayoutDef {
     const run = this.run!;
+    this.checkpoint = { run: saveRun(run), splitNext: this.consumables.splitNext };
     run.wallMod = run.pendingMod;
     run.pendingMod = null;
     evolveDeck(run);

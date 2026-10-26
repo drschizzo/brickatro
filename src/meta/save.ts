@@ -24,6 +24,27 @@ export function loadProfile(): Profile {
   return { ...DEFAULT, seenRelics: [] };
 }
 
+const RUN_KEY = 'brickatro.run.v1';
+
+/** Run en cours (reprise au début du Mur), ou null. */
+export function loadRunSave<T>(): T | null {
+  try {
+    const raw = localStorage.getItem(RUN_KEY);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeRunSave(save: unknown | null) {
+  try {
+    if (save) localStorage.setItem(RUN_KEY, JSON.stringify(save));
+    else localStorage.removeItem(RUN_KEY);
+  } catch {
+    /* stockage indisponible */
+  }
+}
+
 export function saveProfile(p: Profile) {
   try {
     localStorage.setItem(KEY, JSON.stringify(p));

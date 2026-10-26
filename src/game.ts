@@ -1,8 +1,9 @@
 import { clamp, fmt } from './core/math';
 import { Sfx } from './audio/sfx';
-import { Engine, type LancerEnd } from './engine/engine';
+import { Engine, type EngineSave, type LancerEnd } from './engine/engine';
 import { Input } from './input';
 import { Progress } from './meta/progress';
+import { loadRunSave, storeRunSave } from './meta/save';
 import { colorText, newCard, type BrickCard, type BrickColor } from './rules/bricks';
 import type { AstreDef } from './rules/consumables';
 import { WALL_NAMES, type DeckDef } from './rules/decks';
@@ -158,6 +159,7 @@ export class Game implements GameCtx {
     if (!run) return;
     this.gen++;
     this.progress.runEnded(run);
+    storeRunSave(null);
     this.input.held = false;
     this.aim.unlock();
     this.screens.close();
@@ -178,12 +180,27 @@ export class Game implements GameCtx {
         this.progress.tutorialSeen();
         then();
       }, label);
+    const save = loadRunSave<EngineSave>();
     this.screens.mainMenu(
       profile,
       () => (profile.tutoSeen ? newRun() : tuto(newRun, 'Jouer !')),
       () => this.screens.collection(profile, () => this.showMenu()),
       () => tuto(() => this.showMenu()),
+      save ? () => this.resumeRun(save) : null,
     );
+  }
+
+  /** Reprend la partie sauvegardée au début de son Mur. */
+  private resumeRun(save: EngineSave) {
+    this.gen++;
+    if (!this.engine.resume(save)) {
+      storeRunSave(null);
+      return this.showMenu();
+    }
+    this.screens.close();
+    document.body.classList.add('inrun');
+    this.hud.refreshFigureDescs(this.engine.run!.rules.shortFigures);
+    this.presentWall();
   }
 
   private startRun(deck: DeckDef, stake: number, seed: number | null) {
@@ -192,12 +209,15 @@ export class Game implements GameCtx {
     document.body.classList.add('inrun');
     this.progress.runStarted(deck.id);
     this.engine.startRun(deck, stake, seed ?? Date.now() % 1e9);
+    this.hud.refreshFigureDescs(this.engine.rules.shortFigures);
     this.presentWall();
   }
 
   /** Présente le mur que le moteur vient de préparer. */
   private presentWall() {
     const run = this.engine.run!;
+    // Point de reprise : on reprendra au début de ce Mur
+    storeRunSave(this.engine.checkpoint);
     const wall = this.engine.wall;
     const layout = this.engine.layout!;
     this.view.presentWall();
@@ -285,6 +305,7 @@ export class Game implements GameCtx {
   private victory() {
     const run = this.engine.run!;
     this.progress.runWon(run);
+    storeRunSave(null);
     this.sfx.win();
     this.screens.gameOver(true, run, `Tu as vaincu les 8 Antes avec le ${run.deck.name} en ${run.stake.name} !`, () => this.showMenu(), () => {
       this.engine.endless = true;
@@ -299,6 +320,7 @@ export class Game implements GameCtx {
     this.setPhase('between');
     this.sfx.lost();
     this.progress.runEnded(run);
+    storeRunSave(null);
     this.screens.gameOver(false, run,
       `Tombé au ${WALL_NAMES[run.wallIdx]} de l'Ante ${run.ante} avec ${fmt(wall.score)} / ${fmt(wall.target)}.`,
       () => this.showMenu());

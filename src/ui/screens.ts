@@ -43,17 +43,19 @@ export class Screens {
   }
 
   // ───────── Menu principal ─────────
-  mainMenu(profile: Profile, onPlay: () => void, onCollection: () => void, onTuto: () => void) {
+  /** `onContinue` : une partie sauvegardée peut être reprise (sinon le bouton n'apparaît pas). */
+  mainMenu(profile: Profile, onPlay: () => void, onCollection: () => void, onTuto: () => void, onContinue: (() => void) | null = null) {
     this.open(`
       <div class="logo">BRICK<span>ATRO</span></div>
       <p>Un casse-briques roguelike. Construis ton Pot, ose le faire grossir, encaisse avant de tout perdre.</p>
-      <div class="btnrow"><button class="btn" data-play>JOUER</button><button class="btn alt" data-tuto>Tutoriel</button><button class="btn alt" data-coll>Collection</button></div>
+      <div class="btnrow">${onContinue ? '<button class="btn" data-continue>CONTINUER</button>' : ''}<button class="btn${onContinue ? ' alt' : ''}" data-play>${onContinue ? 'Nouvelle partie' : 'JOUER'}</button><button class="btn alt" data-tuto>Tutoriel</button><button class="btn alt" data-coll>Collection</button></div>
       <div class="stats">
         <div><b>${profile.runs}</b>parties</div><div><b>${profile.wins}</b>victoires</div>
         <div><b>${profile.bestAnte}</b>meilleure Ante</div><div><b>${fmt(profile.bestHand)}</b>meilleur coup</div>
       </div>
       <p style="font-size:10px">Souris / tactile · <b>Clic maintenu</b> = attraper et encaisser · <b>S</b> = Secousse · <b>1-6</b> = balles · <b>M</b> = son</p>`);
     this.on('[data-play]', onPlay);
+    if (onContinue) this.on('[data-continue]', onContinue);
     this.on('[data-coll]', onCollection);
     this.on('[data-tuto]', onTuto);
   }

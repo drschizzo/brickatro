@@ -185,6 +185,10 @@ export const newCard = (color: BrickColor, value: number, enh: Enh = 'none', edi
   uid: uidSeq++, color, value, enh, edition,
 });
 export const cloneCard = (c: BrickCard): BrickCard => ({ ...c, uid: uidSeq++ });
+/** Run repris : les nouvelles cartes ne doivent pas réutiliser l'identifiant d'une carte sauvegardée. */
+export const reserveUids = (cards: { uid: number }[]) => {
+  for (const c of cards) uidSeq = Math.max(uidSeq, c.uid + 1);
+};
 
 /** Une brique sans couleur ne compte pas pour les Figures de couleur. */
 export const isColorless = (c: { enh: Enh }) => c.enh === 'pierre';

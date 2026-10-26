@@ -53,8 +53,20 @@ export function pickBoss(next: () => number, ante: number, avoid: string | null)
   const pick = (pool: BossDef[]) => pool[Math.floor(next() * pool.length)];
   const open = BOSSES.filter((b) => (b.minAnte ?? 1) <= ante && !prev.has(b.id));
   if (ante < COMBO_ANTE) return pick(open);
-  const hand = pick(open.filter((b) => !b.control));
-  const ctrl = pick(open.filter((b) => b.control));
+  return combineBosses(pick(open.filter((b) => !b.control)), pick(open.filter((b) => b.control)));
+}
+
+export const BOSS_BY_ID = Object.fromEntries(BOSSES.map((b) => [b.id, b])) as Record<string, BossDef>;
+
+/** Boss d'après son identifiant (« main+contrôle » pour un Boss combiné), pour reprendre un run sauvegardé. */
+export function bossById(id: string): BossDef | null {
+  const [a, b] = id.split('+').map((x) => BOSS_BY_ID[x]);
+  if (!a) return null;
+  return b ? combineBosses(a, b) : a;
+}
+
+/** Boss combiné : une contrainte sur la Main et une contrainte de contrôle. */
+function combineBosses(hand: BossDef, ctrl: BossDef): BossDef {
   return {
     ...ctrl, ...hand, control: false,
     id: `${hand.id}+${ctrl.id}`,
