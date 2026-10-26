@@ -1,6 +1,5 @@
 import { Emitter } from '../core/events';
 import { clamp, damp } from '../core/math';
-import type { Rng } from '../core/rng';
 import { ENH, type BrickColor, type Enh } from '../rules/bricks';
 import type { VeinKind } from '../rules/veins';
 
@@ -40,6 +39,8 @@ export const BUMPER_R = 0.55;
 export const PORTAL_R = 0.6;
 /** Visée assistée : un tir qui passe à moins de cet angle d'une brique "aimantée" se cale dessus. */
 export const AIM_ASSIST = (4.5 * Math.PI) / 180;
+/** Ralenti : distance restant à parcourir (le long de la trajectoire) avant la raquette ; la raquette peut s'y verrouiller sous la balle. */
+export const FOCUS_DIST = 6.5;
 
 export type SlotKind = 'empty' | 'brick' | 'block';
 
@@ -223,7 +224,7 @@ export class World {
   /** Secousses depuis le dernier contact raquette (ou le lancer). */
   tiltsThisTrip = 0;
 
-  constructor(_rng: Rng) {
+  constructor() {
     const totalW = COLS * BRICK_W + (COLS - 1) * GAP_X;
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {

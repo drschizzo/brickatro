@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { Rng } from '../src/core/rng';
 import { Engine } from '../src/engine/engine';
 import { DECKS } from '../src/rules/decks';
 import { RELIC_BY_ID } from '../src/rules/relics';
@@ -8,7 +7,7 @@ import { newCard, type Enh } from '../src/rules/bricks';
 import { World } from '../src/sim/world';
 
 function setup() {
-  const engine = new Engine(new World(new Rng(1)), RULESETS.v3);
+  const engine = new Engine(new World(), RULESETS.v3);
   engine.startRun(DECKS[0], 0, 42);
   return engine;
 }

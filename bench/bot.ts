@@ -19,10 +19,9 @@ import { activeBoss } from '../src/rules/run';
 import { computeScore } from '../src/rules/scoring';
 import { sellPrice } from '../src/rules/shop';
 import { ATELIER_MIN_DECK, removePrice, RETAIL_PRICE } from '../src/rules/atelier';
-import { BALL_R, bounceDir, COLS, FIELD, MAX_BOUNCE_ANGLE, MAX_LAUNCH_ANGLE, paddleXForAngle, predictPath, World } from '../src/sim/world';
+import { BALL_R, bounceDir, COLS, FIELD, FOCUS_DIST, MAX_BOUNCE_ANGLE, MAX_LAUNCH_ANGLE, paddleXForAngle, predictPath, World } from '../src/sim/world';
 
 const STEP = 1 / 120;
-const FOCUS_ZONE = 6.5;
 /** Durée max d'un Lancer (secondes de jeu) avant d'être considéré comme bloqué. */
 const LANCER_TIMEOUT = 150;
 
@@ -180,7 +179,7 @@ export class Bot {
 
   constructor(private cfg: BotConfig, private seed: number) {
     this.rng = new Rng(seed ^ 0x9e3779b9);
-    this.world = new World(this.rng);
+    this.world = new World();
     this.engine = new Engine(this.world, botRules(cfg));
     this.engine.events.on('lancerEnd', (e) => (this.end = e));
     if (cfg.assistDeg !== null) this.world.aimAssist = (cfg.assistDeg * Math.PI) / 180;
@@ -315,9 +314,9 @@ export class Bot {
         }
       }
       if (!w.ballBelowPaddle) saveTried = false;
-      if (ball.dy < 0 && !ball.stuck && ball.y < FIELD.paddleY + FOCUS_ZONE + 4) {
+      if (ball.dy < 0 && !ball.stuck && ball.y < FIELD.paddleY + FOCUS_DIST + 4) {
         // Même critère que le jeu : distance restant à parcourir jusqu'à la raquette
-        if (!decided && this.distToPaddle() < FOCUS_ZONE) {
+        if (!decided && this.distToPaddle() < FOCUS_DIST) {
           const plan = this.planReturn();
           if (plan) {
             decided = true;
