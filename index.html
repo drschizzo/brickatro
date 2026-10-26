@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Brickatro</title>
+  <!-- Anti-FOUC : en dev, style.css est injecté par JS après le chargement des modules. Il révèle le body. -->
+  <style>html { background: #04060d; } body { margin: 0; visibility: hidden; }</style>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Orbitron:wght@600;700;800;900&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="app">
+    <aside id="hud">
+      <div class="title">BRICK<span>ATRO</span></div>
+      <div class="panel wallinfo">
+        <div class="row"><span class="label">Ante <b id="ante">1</b><i>/8</i></span><span id="wallName" class="wallname">Petit Mur</span></div>
+        <div class="row"><span class="label">Objectif</span><b id="target" class="target">0</b></div>
+        <div id="bossInfo" class="bossinfo"></div>
+      </div>
+      <div class="panel score">
+        <div class="label">Score</div>
+        <div class="big" id="score">0</div>
+        <div class="bar"><i id="scoreBar"></i></div>
+      </div>
+      <div class="panel pot" id="potPanel">
+        <div class="figure"><span id="figName">—</span></div>
+        <div class="handslots" id="hand"></div>
+        <div class="prowrow" id="prow"></div>
+        <div class="chipsmult">
+          <div class="chips" id="chips">0</div>
+          <div class="x">×</div>
+          <div class="mult" id="mult">0</div>
+        </div>
+        <div class="potTotal">Pot <b id="potTotal">0</b></div>
+      </div>
+      <div class="panel res">
+        <div class="resitem"><div class="label">Lancers</div><div class="dots" id="lancers"></div></div>
+        <div class="resitem"><div class="label">Secousses</div><div class="dots sec" id="secousses"></div></div>
+        <div class="resitem"><div class="label">Argent</div><b id="money" class="money">$0</b></div>
+        <div class="resitem"><div class="label">Pioche</div><b id="pile" class="pile">0</b></div>
+      </div>
+      <div class="slots two">
+        <div><div class="slotlabel">Consommables</div><div class="cons" id="cons"></div></div>
+        <div><div class="slotlabel">Balles</div><div class="balls" id="balls"></div></div>
+        <div class="toolslot"><div class="slotlabel">Outils</div><div class="tools" id="tools"></div></div>
+      </div>
+      <div class="hint" id="hint"></div>
+    </aside>
+    <div id="field"></div>
+    <aside id="side">
+      <div class="slots"><div class="slotlabel">Reliques <span id="relicCount">0/5</span></div><div class="relics" id="relics"></div></div>
+      <div class="panel outs" id="outs"></div>
+      <div class="panel figs" id="figs"></div>
+    </aside>
+    <div id="controls">
+      <button id="secBtn" type="button">SECOUSSE</button>
+      <button id="catchBtn" type="button">LANCER</button>
+    </div>
+  </div>
+  <div id="targetBar"></div>
+  <div id="popups"></div>
+  <div id="banner"></div>
+  <div id="overlay"></div>
+  <button id="mute" type="button" title="Son (M)">♪</button>
+  <button id="quit" type="button" title="Quitter la partie (Échap)">✕</button>
+  <div id="confirm" class="confirm" hidden>
+    <div class="confirmbox">
+      <h3>Quitter la partie ?</h3>
+      <p>Le run en cours sera perdu.</p>
+      <div class="btnrow"><button class="btn blue" data-resume>Reprendre</button><button class="btn" data-quit>Quitter</button></div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

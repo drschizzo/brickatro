@@ -1,0 +1,23 @@
+{
+  "name": "brickatro",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "bench": "esbuild bench/run.ts --bundle --platform=node --format=esm --outfile=.bench/run.mjs --log-level=warning && node .bench/run.mjs"
+  },
+  "dependencies": {
+    "postprocessing": "6.37.8",
+    "three": "0.178.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "@types/three": "0.178.1",
+    "esbuild": "0.25.12",
+    "typescript": "5.8.3",
+    "vite": "6.3.5"
+  }
+}
