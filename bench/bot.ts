@@ -4,6 +4,7 @@
  */
 import { Rng } from '../src/core/rng';
 import { Engine, type LancerEnd } from '../src/engine/engine';
+import { frontBricks } from '../src/engine/wall-deck';
 import { makeRules, type Rules, type RulesetId } from '../src/rules/ruleset';
 import { RUNES, type RuneDef } from '../src/rules/consumables';
 import { DECKS, WALL_NAMES } from '../src/rules/decks';
@@ -18,7 +19,7 @@ import { activeBoss } from '../src/rules/run';
 import { computeScore } from '../src/rules/scoring';
 import { sellPrice } from '../src/rules/shop';
 import { ATELIER_MIN_DECK, removePrice, RETAIL_PRICE } from '../src/rules/atelier';
-import { BALL_R, bounceDir, COLS, FIELD, ROWS, MAX_BOUNCE_ANGLE, MAX_LAUNCH_ANGLE, paddleXForAngle, predictPath, World } from '../src/sim/world';
+import { BALL_R, bounceDir, COLS, FIELD, MAX_BOUNCE_ANGLE, MAX_LAUNCH_ANGLE, paddleXForAngle, predictPath, World } from '../src/sim/world';
 
 const STEP = 1 / 120;
 const FOCUS_ZONE = 6.5;
@@ -221,7 +222,7 @@ export class Bot {
       }
       this.rec.moneyByAnte[run.ante] = run.money;
       this.shop();
-      this.engine.leaveShop();
+      this.engine.shop.leave();
     }
     this.rec.ante = run.ante;
     this.rec.wallIdx = run.wallIdx;
@@ -371,8 +372,8 @@ export class Bot {
     if (late && this.rng.next() < sk.lose) return { x: landX + (this.rng.next() < 0.5 ? -1 : 1) * (half + 1.5), catch: false };
 
     // Main de référence : elle inclut déjà la meilleure brique du trajet en cours (ce qu'on encaisserait)
-    this.base = this.engine.previewPot();
-    const now = this.engine.score(null, false, 1, this.base).total;
+    this.base = this.engine.hand.previewPot();
+    const now = this.engine.hand.score(null, false, 1, this.base).total;
     const remaining = this.engine.wall.target - this.engine.wall.score;
     // Briques atteignables (pas de 1°), puis meilleur tir selon le plan
     const shots: { a: number; brick: number }[] = [];
@@ -412,7 +413,7 @@ export class Bot {
   private measureReach(shots: { brick: number }[]) {
     const pot = this.base;
     if (pot.empty || pot.bricks.length >= pot.size) return;
-    const useful = this.engine.outs().useful;
+    const useful = this.engine.hand.outs().useful;
     const reach = new Set(shots.map((s) => s.brick).filter((b) => b >= 0 && this.world.bricks[b].kind === 'brick'));
     const ur = [...reach].filter((id) => useful.has(this.world.bricks[id].uid)).length;
     const m = this.rec.reach!;
@@ -431,7 +432,7 @@ export class Bot {
    */
   private bestShot(shots: { a: number; brick: number }[]): { a: number; value: number; brick: number } {
     this.cache.clear();
-    const reach = [...new Set(shots.map((s) => s.brick).filter((b) => b >= 0 && !this.engine.lasered.has(b)))];
+    const reach = [...new Set(shots.map((s) => s.brick).filter((b) => b >= 0 && !this.engine.consumables.lasered.has(b)))];
     // Valeur immédiate pour toutes, planification seulement pour les plus prometteuses
     const val = new Map<number, number>(reach.map((b) => [b, this.valueIfHit([b])]));
     if (this.cfg.plan && !activeBoss(this.engine.run!)?.fog) {
@@ -482,7 +483,7 @@ export class Bot {
   private followUps(slot: number, reach: number[]): number[] {
     const bricks = this.world.bricks;
     // Brique de tête : les ricochets ne comptent pas, seule une prochaine visée remplit la Main
-    if (this.rules.headRule) return reach.filter((id) => id !== slot && !this.engine.lasered.has(id) && bricks[id].alive);
+    if (this.rules.headRule) return reach.filter((id) => id !== slot && !this.engine.consumables.lasered.has(id) && bricks[id].alive);
     const b = bricks[slot];
     const out = new Set<number>(reach);
     for (const dc of [-2, -1, 1, 2]) {
@@ -490,7 +491,7 @@ export class Bot {
       if (c >= 0 && c < COLS) out.add(b.row * COLS + c);
     }
     if (b.row > 0) out.add(slot - COLS); // brique dégagée au-dessus
-    for (const id of this.engine.lasered) out.delete(id);
+    for (const id of this.engine.consumables.lasered) out.delete(id);
     out.delete(slot);
     return [...out].filter((id) => bricks[id].alive && bricks[id].kind === 'brick');
   }
@@ -512,13 +513,13 @@ export class Bot {
       const card = br.kind === 'brick' ? this.engine.cards.get(br.uid) : undefined;
       if (!card) continue;
       if (boss?.eclipse && card.color === run.eclipseColor && card.enh !== 'pierre') continue;
-      pot.addBrick(this.engine.resolveJoker({
+      pot.addBrick(this.engine.hand.resolveJoker({
         uid: card.uid, color: card.color, value: card.value, enh: card.enh, edition: card.edition, cause: 'ball',
         wallBounces: 0, sideBounces: 0, bumped: false, ported: false, fromAbove: false, trip: pot.trip, star: br.star, called: !this.rules.headRule && this.bounceAhead && slot === slots[0],
         row: br.row, col: br.col, vein: br.vein,
-      }, pot), this.engine.dropChooser(pot));
+      }, pot), this.engine.hand.dropChooser(pot));
     }
-    let v = this.engine.score(null, false, 1, pot).total;
+    let v = this.engine.hand.score(null, false, 1, pot).total;
     // Sous le Brouillard, le bot ne voit pas les valeurs : estimation neutre
     if (boss?.fog) v *= 0.6 + this.rng.next() * 0.8;
     this.cache.set(key, v);
@@ -526,7 +527,7 @@ export class Bot {
   }
 
   private chooseLaunchAngle(): number {
-    this.base = this.engine.previewPot();
+    this.base = this.engine.hand.previewPot();
     const w = this.world;
     const b = w.ball;
     const shots: { a: number; brick: number }[] = [];
@@ -545,12 +546,12 @@ export class Bot {
     for (let i = run.consumables.length - 1; i >= 0; i--) {
       const c = run.consumables[i];
       if (c.kind === 'astre' || (c.kind === 'rune' && c.targets === 0)) {
-        this.engine.useInstant(i);
+        this.engine.consumables.useInstant(i);
         continue;
       }
       const slots = this.pickRuneTargets(c);
       if (slots.length) {
-        this.engine.applyRuneOn(i, slots);
+        this.engine.consumables.applyRuneOn(i, slots);
         this.rec.runes++;
       }
     }
@@ -559,7 +560,7 @@ export class Bot {
       if (t.used) return;
       const slots = this.pickToolTargets(t.def);
       if (slots.length) {
-        this.engine.useTool(i, slots);
+        this.engine.consumables.useTool(i, slots);
         this.rec.tools++;
       }
     });
@@ -598,15 +599,8 @@ export class Bot {
       return s;
     };
     // Front : la brique la plus basse de chaque colonne (la plus facile à toucher)
-    const front: number[] = [];
-    for (let c = 0; c < COLS; c++) {
-      for (let r = ROWS - 1; r >= 0; r--) {
-        const b = bricks[r * COLS + c];
-        if (b.kind === 'block' && b.alive) break;
-        if (b.alive && b.kind === 'brick') { front.push(b.id); break; }
-      }
-    }
-    const next = this.engine.peek(DISCARD_BRICKS);
+    const front = frontBricks(bricks).map((b) => b.id);
+    const next = this.engine.deck.peek(DISCARD_BRICKS);
     const picks: number[] = [];
     for (const nc of next) {
       let worst = -1, worstS = Infinity;
@@ -620,7 +614,7 @@ export class Bot {
       wall.set(worst, nc);
     }
     if (!picks.length) return false;
-    const done = this.engine.discardOn(picks);
+    const done = this.engine.deck.discardOn(picks);
     this.rec.discards = (this.rec.discards ?? 0) + 1;
     this.rec.discarded = (this.rec.discarded ?? 0) + done.length;
     return done.length > 0;
@@ -715,7 +709,7 @@ export class Bot {
 
   private shop() {
     const run = this.engine.run!;
-    const items = this.engine.openShop();
+    const items = this.engine.shop.open();
     if (this.cfg.shop === 'none') return;
     if (this.cfg.shop === 'random') {
       for (const i of this.rng.shuffle(items.map((_, k) => k))) {
@@ -729,7 +723,7 @@ export class Bot {
     for (let pass = 0; pass < 3; pass++) {
       const base = this.bankScore(run.relics);
       let bestI = -1, bestGain = 0, sellIdx = -1;
-      this.engine.shopItems.forEach((it, i) => {
+      this.engine.shop.items.forEach((it, i) => {
         if (it.sold || it.price > run.money + (it.type === 'relic' && run.relics.length >= MAX_RELICS ? 3 : 0)) return;
         let gain = 0;
         let sell = -1;
@@ -759,7 +753,7 @@ export class Bot {
         if (gain > 0.03 && perDollar > bestGain) { bestGain = perDollar; bestI = i; sellIdx = sell; }
       });
       if (bestI < 0) break;
-      if (sellIdx >= 0) this.engine.sell(sellIdx);
+      if (sellIdx >= 0) this.engine.shop.sell(sellIdx);
       this.buyAt(bestI);
     }
     if (!this.cfg.noAtelier) this.useAtelier();
@@ -772,7 +766,7 @@ export class Bot {
    */
   private useAtelier() {
     const run = this.engine.run!;
-    if (!this.engine.atelierOpen) return;
+    if (!this.engine.shop.atelierOpen) return;
     // Réserve : l'Atelier ne passe qu'après les Reliques et les intérêts (au banc, le dépenser plus tôt coûte plus qu'il ne rapporte)
     const RESERVE = this.cfg.atelierReserve ?? 15;
     const plain = () => run.cards.filter((c) => c.enh === 'none' && c.edition === 'none');
@@ -787,7 +781,7 @@ export class Bot {
       const n = counts();
       const victim = [...plain()].sort((a, b) => n[a.value] - n[b.value] || a.value - b.value)[0];
       const price = removePrice(run);
-      if (victim && this.engine.atelierRemove(victim.uid)) {
+      if (victim && this.engine.shop.atelierRemove(victim.uid)) {
         refund(price);
         this.rec.removed = (this.rec.removed ?? 0) + 1;
       }
@@ -804,7 +798,7 @@ export class Bot {
           if (gain >= 1 && n[v] + 1 >= 4 && (!best || gain > best.gain)) best = { uid: c.uid, d, gain };
         }
       }
-      if (best && this.engine.atelierRetail(best.uid, best.d)) {
+      if (best && this.engine.shop.atelierRetail(best.uid, best.d)) {
         refund(RETAIL_PRICE);
         this.rec.retailed = (this.rec.retailed ?? 0) + 1;
       }
@@ -813,8 +807,8 @@ export class Bot {
 
   private buyAt(i: number) {
     const run = this.engine.run!;
-    const it = this.engine.shopItems[i];
-    const r = this.engine.buy(i);
+    const it = this.engine.shop.items[i];
+    const r = this.engine.shop.buy(i);
     if (!r.ok) return;
     if (it.type === 'relic') this.rec.relicsEver.push({ id: it.def.id, ante: run.ante });
     if (r.astre) this.rec.astres++;
@@ -828,7 +822,7 @@ export class Bot {
           if (f > bestF) { bestF = f; pick = k; }
         }
       });
-      const res = this.engine.pickPack(r.options, pick);
+      const res = this.engine.shop.pickPack(r.options, pick);
       if (res.astre) this.rec.astres++;
     }
   }

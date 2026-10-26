@@ -1,5 +1,7 @@
 import type { BrickCard, BrickColor, Enh } from './bricks';
 import type { FigureId } from './figures';
+import { sumMod } from './relics';
+import type { Run } from './run';
 
 export interface RuneDef {
   kind: 'rune';
@@ -88,4 +90,10 @@ export function applyRune(rune: RuneDef, cards: BrickCard[]) {
     if (rune.color !== undefined) c.color = rune.color;
     if (rune.valueUp) c.value = Math.min(10, c.value + rune.valueUp);
   }
+}
+
+/** Un Astre fait monter sa main de poker d'un niveau (Astrologue : un de plus). Retourne le nouveau niveau. */
+export function applyAstre(run: Run, a: AstreDef): number {
+  run.levels[a.figure] += 1 + sumMod(run.relics, 'astroBonus');
+  return run.levels[a.figure];
 }

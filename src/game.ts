@@ -16,8 +16,7 @@ import { activeBoss, isBossWall, targetOf } from './rules/run';
 import { ATELIER_MIN_DECK, canRemove, canRetail, removePrice, RETAIL_PRICE } from './rules/atelier';
 import type { AtelierView } from './ui/cards';
 import { frenzyStreak, seriesMult, type ScoreResult } from './rules/scoring';
-import { MAX_RELICS } from './rules/relics';
-import { PACKS, rollRelics } from './rules/shop';
+import { PACKS } from './rules/shop';
 import { BallRenderer, Frame, PaddleRenderer } from './render/actors';
 import { AimGuide, type GuidePath } from './render/aim';
 import { TerrainRenderer } from './render/terrain';
@@ -341,25 +340,21 @@ export class Game {
         this.engine.collect(total);
         this.sfx.coin();
         const next = () => (this.engine.isVictory ? this.victory() : this.openShop());
-        if (this.run!.wallMod?.reward.kind === 'relic') this.curseRelic(next);
-        else next();
+        this.curseRelic(next);
       });
     }, 800);
   }
 
   /** Récompense d'un Mur maudit brisé : une Relique rare au choix (ou de l'argent si plus de place). */
   private curseRelic(then: () => void) {
-    const run = this.run!;
-    if (run.relics.length >= MAX_RELICS) {
-      run.money += 10;
-      this.hud.banner('MUR MAUDIT BRISÉ', 'Plus de place pour une Relique : +$10', '#b85cff');
+    const reward = this.engine.shop.curseReward();
+    if (!reward) return then();
+    if ('money' in reward) {
+      this.hud.banner('MUR MAUDIT BRISÉ', `Plus de place pour une Relique : +$${reward.money}`, '#b85cff');
       return then();
     }
-    const rare = rollRelics(run, 8).filter((d) => d.rarity !== 'commun');
-    const defs = (rare.length >= 2 ? rare : rollRelics(run, 2)).slice(0, 2);
-    this.screens.relicChoice('Mur maudit brisé : choisis ta Relique', defs, (d) => {
-      if (d) {
-        run.relics.push({ def: d, counter: 0 });
+    this.screens.relicChoice('Mur maudit brisé : choisis ta Relique', reward.choices, (d) => {
+      if (d && this.engine.shop.takeRelic(d)) {
         this.sfx.rune();
         this.markSeen();
       }
@@ -398,7 +393,7 @@ export class Game {
 
   private openShop() {
     this.phase = 'between';
-    this.engine.openShop();
+    this.engine.shop.open();
     this.markSeen();
     this.renderShop();
   }
@@ -408,7 +403,7 @@ export class Game {
 
   private markSeen() {
     const seen = new Set(this.profile.seenRelics);
-    for (const it of this.engine.shopItems) if (it.type === 'relic') seen.add(it.def.id);
+    for (const it of this.engine.shop.items) if (it.type === 'relic') seen.add(it.def.id);
     for (const r of this.run!.relics) seen.add(r.def.id);
     this.profile.seenRelics = [...seen];
     saveProfile(this.profile);
@@ -420,53 +415,53 @@ export class Game {
     if (idx > 2) { idx = 0; ante++; }
     const next = `Prochain : <b>${WALL_NAMES[idx]}</b> de l'Ante ${ante} · Objectif <b class="t-g">${fmt(targetOf(run, ante, idx))}</b>` +
       (idx === 2 || ante === run.ante ? `<br>Boss de l'Ante : <b>${run.boss.glyph} ${run.boss.name}</b>` : '');
-    const offer = this.engine.wallModOffer;
+    const offer = this.engine.shop.wallModOffer;
     const sel = run.cards.find((c) => c.uid === this.atelierSel);
-    const atelier: AtelierView | null = this.engine.atelierOpen ? {
+    const atelier: AtelierView | null = this.engine.shop.atelierOpen ? {
       sel: sel?.uid ?? null, removePrice: removePrice(run), retailPrice: RETAIL_PRICE,
-      canRemove: canRemove(run, this.engine.atelier), canUp: canRetail(run, this.engine.atelier, sel, 1), canDown: canRetail(run, this.engine.atelier, sel, -1),
-      removed: this.engine.atelier.removed, retailed: this.engine.atelier.retailed, minDeck: ATELIER_MIN_DECK,
+      canRemove: canRemove(run, this.engine.shop.atelier), canUp: canRetail(run, this.engine.shop.atelier, sel, 1), canDown: canRetail(run, this.engine.shop.atelier, sel, -1),
+      removed: this.engine.shop.atelier.removed, retailed: this.engine.shop.atelier.retailed, minDeck: ATELIER_MIN_DECK,
     } : null;
-    this.screens.shop(run, this.engine.shopItems, this.engine.rerollCost, next, this.engine.skipReward, offer ? { offer, on: !!run.pendingMod } : null, {
+    this.screens.shop(run, this.engine.shop.items, this.engine.shop.rerollCost, next, this.engine.shop.skipReward, offer ? { offer, on: !!run.pendingMod } : null, {
       pick: (uid) => {
         this.atelierSel = this.atelierSel === uid ? null : uid;
         this.renderShop();
       },
       remove: () => {
-        if (this.atelierSel === null || !this.engine.atelierRemove(this.atelierSel)) return this.sfx.error();
+        if (this.atelierSel === null || !this.engine.shop.atelierRemove(this.atelierSel)) return this.sfx.error();
         this.atelierSel = null;
         this.sfx.coin();
         this.renderShop();
       },
       retail: (delta) => {
-        if (this.atelierSel === null || !this.engine.atelierRetail(this.atelierSel, delta)) return this.sfx.error();
+        if (this.atelierSel === null || !this.engine.shop.atelierRetail(this.atelierSel, delta)) return this.sfx.error();
         this.sfx.rune();
         this.renderShop();
       },
       curse: () => {
-        this.engine.acceptWallMod(!run.pendingMod);
+        this.engine.shop.acceptWallMod(!run.pendingMod);
         if (run.pendingMod) this.sfx.rune(); else this.sfx.click();
         this.renderShop();
       },
       buy: (i) => this.buy(i),
       reroll: () => {
-        if (!this.engine.reroll()) return this.sfx.error();
+        if (!this.engine.shop.reroll()) return this.sfx.error();
         this.markSeen();
         this.sfx.shuffle();
         this.renderShop();
       },
       sell: (i) => {
-        this.engine.sell(i);
+        this.engine.shop.sell(i);
         this.sfx.coin();
         this.renderShop();
       },
       move: (i, dir) => {
-        this.engine.move(i, dir);
+        this.engine.shop.move(i, dir);
         this.renderShop();
       },
       leave: () => {
         this.screens.close();
-        if (this.engine.leaveShop()) {
+        if (this.engine.shop.leave()) {
           this.profile.bestAnte = Math.max(this.profile.bestAnte, run.ante);
           saveProfile(this.profile);
         }
@@ -474,7 +469,7 @@ export class Game {
       },
       skip: () => {
         const skipped = WALL_NAMES[(run.wallIdx + 1) % 3];
-        const r = this.engine.skipNextWall();
+        const r = this.engine.shop.skipNextWall();
         if (!r) return;
         this.screens.close();
         if (r.newAnte) {
@@ -490,7 +485,7 @@ export class Game {
         const opts = r.options;
         const pack = PACKS[r.reward.pack].name;
         const show = (note = 'Récompense pour avoir passé le mur.') => this.screens.pack(pack, opts, note, (pick) => {
-          const res = this.engine.pickPack(opts, pick);
+          const res = this.engine.shop.pickPack(opts, pick);
           if (!res.ok) return this.packFull(show);
           if (res.astre) this.announceAstre(res.astre);
           this.screens.close();
@@ -502,8 +497,8 @@ export class Game {
   }
 
   private buy(i: number) {
-    const it = this.engine.shopItems[i];
-    const r = this.engine.buy(i);
+    const it = this.engine.shop.items[i];
+    const r = this.engine.shop.buy(i);
     if (!r.ok) {
       if (r.reason === 'reliques') this.hud.banner('PLUS DE PLACE', 'Vends une Relique d\'abord', '#fe5f55');
       if (r.reason === 'outils') this.hud.banner('PLUS DE PLACE', 'Tu as déjà 2 Outils', '#fe5f55');
@@ -517,7 +512,7 @@ export class Game {
       const opts = r.options;
       const note = it.pack === 'briques' ? 'La brique choisie rejoint ton deck.' : it.pack === 'astres' ? 'L\'Astre choisi améliore sa main.' : `Emplacements : ${run.consumables.length}/${run.maxConsumables}`;
       const show = (n = note) => this.screens.pack(PACKS[it.pack].name, opts, n, (pick) => {
-        const res = this.engine.pickPack(opts, pick);
+        const res = this.engine.shop.pickPack(opts, pick);
         if (!res.ok) return this.packFull(show);
         if (res.astre) this.announceAstre(res.astre);
         else if (pick !== null) this.sfx.rune();
@@ -637,7 +632,7 @@ export class Game {
     if (!run || this.phase !== 'aim') return;
     const c = run.consumables[i];
     if (!c) return;
-    const r = this.engine.useInstant(i);
+    const r = this.engine.consumables.useInstant(i);
     if (r) {
       if (r.astre) this.announceAstre(r.astre);
       if (r.discards) {
@@ -685,7 +680,7 @@ export class Game {
     if (i < 0) {
       if (!this.run || this.wall.discardsLeft <= 0 || this.phase !== 'aim') return;
       this.phase = 'target';
-      this.targeting = { rune: { ...DISCARD_TOOL, targets: this.engine.discardSize }, index: -1, sel: [] };
+      this.targeting = { rune: { ...DISCARD_TOOL, targets: this.engine.deck.discardSize }, index: -1, sel: [] };
       this.showTargetBar();
       this.updateHint();
       return;
@@ -700,7 +695,7 @@ export class Game {
   }
 
   private confirmDiscard() {
-    const ids = this.engine.discardOn(this.targeting!.sel);
+    const ids = this.engine.deck.discardOn(this.targeting!.sel);
     for (const id of ids) {
       const b = this.world.bricks[id];
       const fx = BRICK_COLORS[b.color];
@@ -723,7 +718,7 @@ export class Game {
   private confirmTool() {
     const t = this.targeting!;
     if (t.index < 0) return this.confirmDiscard();
-    const def = this.engine.useTool(t.index, t.sel);
+    const def = this.engine.consumables.useTool(t.index, t.sel);
     const n = t.sel.length;
     for (const id of t.sel) {
       const b = this.world.bricks[id];
@@ -747,7 +742,7 @@ export class Game {
   private confirmRune() {
     const t = this.targeting!;
     if (t.rune.kind === 'tool') return this.confirmTool();
-    const rune = this.engine.applyRuneOn(t.index, t.sel);
+    const rune = this.engine.consumables.applyRuneOn(t.index, t.sel);
     // Le retour visuel prend la couleur du résultat (nouvelle couleur, Or, Verre…)
     const fx = rune.color !== undefined ? BRICK_COLORS[rune.color] : rune.enh === 'or' ? GOLD : rune.enh === 'verre' ? CYAN : PURPLE;
     for (const id of t.sel) {
@@ -779,7 +774,7 @@ export class Game {
   private updateHint() {
     const h =
       this.phase === 'aim'
-        ? '<b>Maintiens</b> <kbd>Clic</kbd> / <kbd>Espace</kbd> pour viser, <b>relâche</b> pour lancer<br><kbd>1</kbd>-<kbd>6</kbd> : balle · clic sur une Rune ou un Outil : l\'utiliser' + (this.wall.discardsLeft > 0 ? '<br><kbd>R</kbd> <b>Défausse</b> : remplace jusqu\'à ' + this.engine.discardSize + ' briques par les prochaines de la pioche' : '')
+        ? '<b>Maintiens</b> <kbd>Clic</kbd> / <kbd>Espace</kbd> pour viser, <b>relâche</b> pour lancer<br><kbd>1</kbd>-<kbd>6</kbd> : balle · clic sur une Rune ou un Outil : l\'utiliser' + (this.wall.discardsLeft > 0 ? '<br><kbd>R</kbd> <b>Défausse</b> : remplace jusqu\'à ' + this.engine.deck.discardSize + ' briques par les prochaines de la pioche' : '')
         : this.phase === 'target'
           ? 'Clique sur les briques du mur à cibler.'
           : this.phase === 'scoring'
@@ -797,14 +792,14 @@ export class Game {
     this.hud.setRelics(run.relics);
     this.hud.setConsumables(run.consumables, run.maxConsumables, this.phase === 'aim');
     this.hud.setBalls(run.balls, this.engine.selectedBall);
-    this.hud.setTools(run.tools, this.phase === 'aim', { left: this.wall.discardsLeft, max: this.wall.discardsMax, size: this.engine.discardSize });
+    this.hud.setTools(run.tools, this.phase === 'aim', { left: this.wall.discardsLeft, max: this.wall.discardsMax, size: this.engine.deck.discardSize });
   }
 
   private refreshResources() {
     const run = this.run;
     if (!run) return;
     const w = this.wall;
-    this.hud.setResources(w.lancersLeft, w.lancersMax, w.secoussesLeft, w.secoussesMax, run.money, w.drawPile.length, this.engine.peek());
+    this.hud.setResources(w.lancersLeft, w.lancersMax, w.secoussesLeft, w.secoussesMax, run.money, w.drawPile.length, this.engine.deck.peek());
   }
 
   // ───────────────────────── Événements → juice ─────────────────────────
@@ -840,11 +835,11 @@ export class Game {
     en.on('brick', ({ brick, card, eclipsed, out, tags, shard, money, bomb, cause }) => {
       // v3 : une brique touchée par la balle est candidate à la Main (choisie au renvoi), on montre sa valeur
       const candidate = shard && this.run?.rules.headMode === 'best' && (cause === 'ball' || cause === 'pierce');
-      const lead = candidate && this.engine.tripLead()?.pb.uid === card.uid;
+      const lead = candidate && this.engine.hand.tripLead()?.pb.uid === card.uid;
       if (shard && !lead) {
         // Éclat : seulement des Jetons (une candidate battue par une meilleure brique du trajet aussi)
         this.sfx.brick(this.pot.broken);
-        this.popupWorld(brick.x, brick.y, `éclat +${this.engine.shardChips(card)}`, 'dim');
+        this.popupWorld(brick.x, brick.y, `éclat +${this.engine.hand.shardChips(card)}`, 'dim');
       } else if (lead) {
         // Meilleure brique du trajet pour l'instant : elle entrera dans la Main au renvoi
         this.sfx.brick(this.pot.broken);
@@ -1141,9 +1136,9 @@ export class Game {
     // Aperçu : les balles en l'air compteraient si on encaissait maintenant
     if (this.phase === 'play') this.pot.airBalls = this.world.extras.length;
     // v3 : la Main affichée inclut la meilleure brique du trajet en cours (ce qu'on encaisserait maintenant)
-    const pot = this.engine.previewPot();
-    const lead = pot !== this.pot ? this.engine.tripLead() : null;
-    const res = this.engine.score(null, false, 1, pot);
+    const pot = this.engine.hand.previewPot();
+    const lead = pot !== this.pot ? this.engine.hand.tripLead() : null;
+    const res = this.engine.hand.score(null, false, 1, pot);
     const idx = figureIndex(res.figure);
     const upgraded = fromBrick && idx > this.lastFigureIdx && idx >= 1;
     this.lastFigureIdx = idx;
@@ -1161,15 +1156,15 @@ export class Game {
     const remaining = Math.max(1, this.wall.target - this.wall.score);
     this.heat = clamp(res.total / remaining, 0, 1);
     this.hud.setPot(res.figure?.name ?? null, res.level, res.chips, res.mult, res.total, this.heat, upgraded);
-    this.hud.setFigures(res.figure?.id ?? null, run.levels, this.engine.played);
+    this.hud.setFigures(res.figure?.id ?? null, run.levels, this.engine.hand.played);
     this.hud.setProwess(res.prowess.map((p) => `${PROWESS[p.id].glyph} ${PROWESS[p.id].name}${p.count > 1 ? ' ×' + p.count : ''}`),
       { streak: this.pot.streak, mult: seriesMult(this.pot.streak, run.relics) },
       { frenzy: this.pot.frenzy, air: this.world.extras.length, toFrenzy: frenzyStreak(run.relics) - this.pot.streak });
     this.hud.setHand(pot.bricks, pot.size, res.scoringUids, lead?.pb.uid ?? null);
-    this.hud.setShards(run.rules.headRule ? pot.shards : 0, pot.shardChips, this.engine.tripCount);
+    this.hud.setShards(run.rules.headRule ? pot.shards : 0, pot.shardChips, this.engine.hand.tripCount);
     // Outs : quelles briques du mur feraient monter la Main
     const fog = !!activeBoss(run)?.fog;
-    const outs = this.engine.outs();
+    const outs = this.engine.hand.outs();
     this.useful = fog ? new Set() : outs.useful;
     this.hud.setOuts(outs.targets.map((t) => ({ figure: t.figure.name, need: t.need })), pot.empty, fog, res.blocked, this.engine.orders, run.rules.headRule && run.rules.headMode === 'best');
   }
@@ -1443,7 +1438,7 @@ export class Game {
     const frenzy = this.phase === 'play' && this.pot.frenzy;
     document.body.classList.toggle('frenzy', frenzy);
     const ballHeat = frenzy ? 1 : clamp(this.pot.rebounds / 10 + this.pot.bricks.length / 40, 0, 1);
-    const sel = this.targeting ? new Set([...this.targeting.sel, ...this.engine.lasered]) : this.engine.lasered;
+    const sel = this.targeting ? new Set([...this.targeting.sel, ...this.engine.consumables.lasered]) : this.engine.consumables.lasered;
     this.bricks.update(dt, this.heat, {
       card: (uid) => this.card(uid),
       selected: sel,
