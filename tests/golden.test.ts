@@ -2,6 +2,8 @@
  * Test de référence : des runs complets joués par le bot du banc, à graine fixe.
  * Le moteur est déterministe : toute différence de résultat signale un changement de règles.
  * Après un changement VOULU des règles : `npx vitest run -u` pour réenregistrer la référence.
+ * La physique est chaotique : un écart d'un bit dans les calculs flottants change la partie. La référence est
+ * enregistrée sur macOS ARM (Apple Silicon) et ne se vérifie que sur cette architecture (la CI de test tourne sur macOS).
  */
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';

@@ -84,6 +84,8 @@ Quelques principes :
 
 `npm test` lance les tests unitaires (Figures, scoring, effets, sauvegarde) et des parties complètes jouées par le bot du banc avec des graines fixes, dont le résultat est comparé à une référence enregistrée. Après une modification volontaire des règles, la référence se met à jour avec `npx vitest run -u`.
 
+La physique étant chaotique, un écart infime dans les calculs flottants suffit à changer une partie : la référence est enregistrée sur macOS ARM (Apple Silicon) et ces tests ne passent que sur cette architecture. La CI les exécute sur un runner macOS.
+
 ## Déploiement
 
-Chaque push sur `main` lance le workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) : tests, build, puis publication sur GitHub Pages.
+Chaque push sur `main` lance le workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) : tests (sur macOS), build, puis publication sur GitHub Pages.
