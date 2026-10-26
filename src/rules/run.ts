@@ -81,9 +81,11 @@ export function createRun(deck: DeckDef, stakeIdx: number, seed: number, rules: 
 export function evolveDeck(run: Run) {
   // Inflation : le deck dérive, les 10 deviennent Polychromes
   const inflate = sumMod(run.relics, 'inflate');
-  for (const c of run.rng.shuffle(run.cards.filter((c) => c.enh !== 'pierre')).slice(0, inflate)) {
-    if (c.value < 10) c.value++;
-    else c.edition = 'poly';
+  if (inflate) {
+    for (const c of run.rng.shuffle(run.cards.filter((c) => c.enh !== 'pierre')).slice(0, inflate)) {
+      if (c.value < 10) c.value++;
+      else c.edition = 'poly';
+    }
   }
   const glassify = sumMod(run.relics, 'glassifyOnWall');
   if (glassify) {
