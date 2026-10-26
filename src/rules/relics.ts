@@ -1,6 +1,6 @@
-import { FIGURE_BY_ID, figureIndex, type FigureId } from './figures';
-
-const BRELAN = figureIndex(FIGURE_BY_ID.brelan);
+import { isColorless, type BrickColor } from './bricks';
+import { BOMB_DELAY, type BreakInfo, type EffectApi } from './effects';
+import { FIGURE_BY_ID, figureIndex } from './figures';
 import type { Pot } from './pot';
 import { EDGE_CATCH } from './prowess';
 import type { ScoreAcc, ScoreCtx, ScoreResult } from './scoring';
@@ -32,8 +32,12 @@ export interface RelicDef {
   score?: (ctx: ScoreCtx, acc: ScoreAcc, r: RelicInstance) => void;
   /** Après un encaissement réel, non annulé par un Boss (Reliques évolutives). */
   onCashIn?: (r: RelicInstance, res: ScoreResult, pot: Pot) => void;
-  onBallLost?: (r: RelicInstance) => void;
-  onRebound?: (r: RelicInstance) => void;
+  /** Balle principale perdue (avant l'Assurance). */
+  onBallLost?: (r: RelicInstance, api: EffectApi) => void;
+  /** Renvoi de la balle principale sur la raquette (après la Série et la Frénésie). */
+  onRebound?: (r: RelicInstance, api: EffectApi) => void;
+  /** Une brique casse (après les effets de son amélioration). */
+  onBrickBroken?: (r: RelicInstance, api: EffectApi, info: BreakInfo) => void;
   onGlassBroken?: (r: RelicInstance, n: number) => void;
   /** Au début de chaque Mur : nb de briques de la pioche à transformer en Verre. */
   glassifyOnWall?: number;
@@ -59,10 +63,6 @@ export interface RelicDef {
   retriggerColor?: { color: number; n: number };
   chameleon?: boolean;
   bigBomb?: boolean;
-  /** Une brique cassée peint ses voisines de rangée de sa couleur (pour ce Mur). */
-  paint?: boolean;
-  /** Une brique cassée casse ses voisines de rangée de même valeur. */
-  chain?: boolean;
   /** Balles perdues rattrapées par Mur. */
   nets?: number;
   midas?: boolean;
@@ -71,16 +71,10 @@ export interface RelicDef {
   seriesStep?: number;
   /** Copie le score de la Relique à droite. */
   copy?: boolean;
-  /** Une balle perdue détruit une autre Relique au hasard. */
-  pact?: boolean;
-  /** Chaque renvoi fait apparaître une brique sur le mur. */
-  mason?: boolean;
   /** Au début de chaque Mur : nb de briques du deck qui gagnent +1. */
   inflate?: number;
   /** Raquette jumelle au plafond. */
   twin?: boolean;
-  /** La balle se divise au 3e renvoi du Lancer. */
-  mitosis?: boolean;
   /** Renvois de Série en plus (ou en moins) pour déclencher la Frénésie. */
   frenzyStreak?: number;
 }
@@ -94,6 +88,11 @@ const hasRun3 = (pot: Pot) => {
 
 /** Briques qui comptent d'une couleur donnée. */
 const perColor = (color: number) => (ctx: ScoreCtx) => ctx.pot.count((b) => ctx.pot.matches(b, color), ctx.scoring);
+/** ×Mult cumulatif (x par élément), arrondi au centième. */
+const xPow = (x: number, n: number) => Math.round(Math.pow(x, n) * 100) / 100;
+const BRELAN = figureIndex(FIGURE_BY_ID.brelan);
+const MASON_VALUE = 7;
+const MITOSIS_REBOUND = 3;
 
 export const RELICS: RelicDef[] = [
   // ───────── Couleur ─────────
@@ -105,7 +104,7 @@ export const RELICS: RelicDef[] = [
   {
     id: 'tesla', name: 'Tesla', glyph: '⚡', rarity: 'rare', tags: ['couleur'],
     desc: () => '{x}×1.25 Mult{/} par brique {foudre}Foudre{/} qui compte (cumulatif)',
-    score: (ctx, acc) => { const n = perColor(2)(ctx); if (n) acc.xmult(Math.round(Math.pow(1.25, n) * 100) / 100); },
+    score: (ctx, acc) => { const n = perColor(2)(ctx); if (n) acc.xmult(xPow(1.25, n)); },
   },
   {
     id: 'monomane', name: 'Monomane', glyph: '◆', rarity: 'rare', tags: ['couleur'],
@@ -133,7 +132,19 @@ export const RELICS: RelicDef[] = [
   {
     id: 'pinceau', name: 'Pinceau', glyph: '🖌', rarity: 'rare', tags: ['couleur', 'espace'],
     desc: () => 'Quand une brique casse, ses {k}voisines de rangée{/} prennent sa couleur (pour ce Mur)',
-    paint: true,
+    onBrickBroken: (_r, api, { brick, card }) => {
+      if (isColorless(card)) return;
+      // Copie de carte limitée à ce Mur, le deck ne change pas
+      const ids: number[] = [];
+      for (const nb of api.rowNeighbors(brick)) {
+        const c = api.card(nb.uid);
+        if (!c || isColorless(c) || c.color === card.color) continue;
+        api.patchCard(nb, { color: card.color });
+        nb.color = card.color;
+        ids.push(nb.id);
+      }
+      if (ids.length) api.painted(ids, card.color);
+    },
   },
   // ───────── Espace : où les briques étaient sur le mur ─────────
   {
@@ -169,7 +180,14 @@ export const RELICS: RelicDef[] = [
   {
     id: 'voisinage', name: 'Voisinage', glyph: '🏘', rarity: 'rare', tags: ['espace', 'perfo'],
     desc: () => 'Quand la balle casse une brique, ses {k}voisines de rangée de même valeur{/} cassent aussi',
-    chain: true,
+    onBrickBroken: (_r, api, { brick, card, cause }) => {
+      // Pas de réaction en chaîne : une brique explosée ne fait pas casser ses voisines
+      if (cause === 'explosion' || isColorless(card)) return;
+      for (const nb of api.rowNeighbors(brick)) {
+        const c = api.card(nb.uid);
+        if (c && !isColorless(c) && c.value === card.value) api.explode(nb.id, BOMB_DELAY * 1.5);
+      }
+    },
   },
   // ───────── Raquette ─────────
   {
@@ -196,12 +214,12 @@ export const RELICS: RelicDef[] = [
   {
     id: 'decimal', name: 'Décimal', glyph: '🔟', rarity: 'rare', tags: ['valeur'],
     desc: () => 'Chaque {k}10{/} qui compte donne {x}×1.5 Mult{/}',
-    score: (ctx, acc) => { const n = ctx.scoring.filter((b) => b.enh !== 'pierre' && b.value === 10).length; if (n) acc.xmult(Math.round(Math.pow(1.5, n) * 100) / 100); },
+    score: (ctx, acc) => { const n = ctx.scoring.filter((b) => b.enh !== 'pierre' && b.value === 10).length; if (n) acc.xmult(xPow(1.5, n)); },
   },
   {
     id: 'dynastie', name: 'Dynastie', glyph: '🏰', rarity: 'légendaire', tags: ['valeur', 'scaling'],
     desc: (r) => `Gagne {x}×0.2 Mult{/} à chaque {k}Brelan{/} ou mieux encaissé (actuel {x}×${(1 + 0.2 * r.counter).toFixed(1)}{/})`,
-    onCashIn: (r, res) => { if (res.figure && (['brelan', 'suite', 'couleur', 'full', 'carre', 'quinteflush'] as FigureId[]).includes(res.figure.id)) r.counter++; },
+    onCashIn: (r, res) => { if (figureIndex(res.figure) >= BRELAN) r.counter++; },
     score: (_c, acc, r) => { if (r.counter) acc.xmult(Math.round((1 + 0.2 * r.counter) * 10) / 10); },
   },
   // ───────── Adresse ─────────
@@ -234,7 +252,7 @@ export const RELICS: RelicDef[] = [
   {
     id: 'sniper', name: "Tireur d'élite", glyph: '🎯', rarity: 'rare', tags: ['adresse'],
     desc: () => '{x}×1.5 Mult{/} par brique {k}★ cible{/} dans la Main',
-    score: (ctx, acc) => { const n = ctx.pot.count((b) => b.star); if (n) acc.xmult(Math.round(Math.pow(1.5, n) * 100) / 100); },
+    score: (ctx, acc) => { const n = ctx.pot.count((b) => b.star); if (n) acc.xmult(xPow(1.5, n)); },
   },
   // ───────── Combo ─────────
   {
@@ -294,7 +312,7 @@ export const RELICS: RelicDef[] = [
   {
     id: 'berserker', name: 'Berserker', glyph: '👹', rarity: 'rare', tags: ['perfo'],
     desc: () => '{x}×1.5 Mult{/} par brique de la Main {k}traversée{/} ou {k}explosée{/}',
-    score: (ctx, acc) => { const n = ctx.pot.count((b) => b.cause !== 'ball'); if (n) acc.xmult(Math.round(Math.pow(1.5, n) * 100) / 100); },
+    score: (ctx, acc) => { const n = ctx.pot.count((b) => b.cause !== 'ball'); if (n) acc.xmult(xPow(1.5, n)); },
   },
   {
     id: 'artificier', name: 'Artificier', glyph: '🎆', rarity: 'commun', tags: ['perfo', 'eco'],
@@ -406,13 +424,23 @@ export const RELICS: RelicDef[] = [
   {
     id: 'pacte', name: 'Pacte du Diable', glyph: '😈', rarity: 'rare', tags: ['combo'],
     desc: () => '{x}×2 Mult{/}. Chaque {k}balle perdue{/} détruit une {k}autre Relique{/} au hasard',
-    pact: true,
+    onBallLost: (_r, api) => {
+      const relics = api.run.relics;
+      const victims = relics.filter((x) => x.def.id !== 'pacte');
+      if (victims.length) api.relicLost(relics.indexOf(api.run.rng.pick(victims)));
+    },
     score: (_c, acc) => acc.xmult(2),
   },
   {
     id: 'macon', name: 'Maçon fou', glyph: '🧱', rarity: 'rare', tags: ['raquette', 'perfo'],
-    desc: () => 'Chaque renvoi sur la raquette fait apparaître une brique {k}7{/} sur le mur (pour ce Mur)',
-    mason: true,
+    desc: () => `Chaque renvoi sur la raquette fait apparaître une brique {k}${MASON_VALUE}{/} sur le mur (pour ce Mur)`,
+    onRebound: (_r, api) => {
+      const free = api.freeSlots();
+      if (!free.length) return;
+      const id = api.run.rng.pick(free);
+      api.spawnTemp(id, api.run.rng.int(4) as BrickColor, MASON_VALUE);
+      api.spawned([id]);
+    },
   },
   {
     id: 'inflation', name: 'Inflation', glyph: '🎈', rarity: 'rare', tags: ['valeur', 'enchant'],
@@ -433,8 +461,8 @@ export const RELICS: RelicDef[] = [
   },
   {
     id: 'mitose', name: 'Mitose', glyph: '🧫', rarity: 'rare', tags: ['combo'],
-    desc: () => 'Au {k}3e renvoi{/} de chaque Lancer, la balle se {k}divise en 2{/}',
-    mitosis: true,
+    desc: () => `Au {k}${MITOSIS_REBOUND}e renvoi{/} de chaque Lancer, la balle se {k}divise en 2{/}`,
+    onRebound: (_r, api) => { if (api.pot.rebounds === MITOSIS_REBOUND) api.world.splitBall(0.35); },
   },
   {
     id: 'jongleur', name: 'Jongleur', glyph: '🤹', rarity: 'commun', tags: ['combo'],
@@ -484,12 +512,18 @@ export const RELIC_BY_ID = Object.fromEntries(RELICS.map((r) => [r.id, r])) as R
 export const MAX_RELICS = 5;
 export const RELIC_PRICE: Record<Rarity, number> = { commun: 5, rare: 7, légendaire: 10 };
 
+/** Modificateurs déclarés par les Reliques (les clés se déduisent de RelicDef : rien à tenir à jour à la main). */
+type KeysOf<T> = { [K in keyof RelicDef]-?: NonNullable<RelicDef[K]> extends T ? K : never }[keyof RelicDef];
+export type NumMod = Exclude<KeysOf<number>, 'speedMul' | 'paddleMul' | 'interestCap' | 'keepOnLoss'>;
+export type MulMod = 'speedMul' | 'paddleMul';
+export type FlagMod = KeysOf<boolean>;
+
 /** Somme d'un modificateur numérique sur toutes les reliques. */
-export const sumMod = (relics: RelicInstance[], key: 'lancers' | 'secousses' | 'discards' | 'discardSize' | 'rerollDiscount' | 'astroBonus' | 'retriggerFirst' | 'retriggerAbove' | 'retriggerEnhanced' | 'glassifyOnWall' | 'nets' | 'seriesStep' | 'inflate' | 'frenzyStreak') =>
-  relics.reduce((s, r) => s + ((r.def[key] as number | undefined) ?? 0), 0);
-export const prodMod = (relics: RelicInstance[], key: 'speedMul' | 'paddleMul') =>
-  relics.reduce((s, r) => s * ((r.def[key] as number | undefined) ?? 1), 1);
-export const hasFlag = (relics: RelicInstance[], key: 'chameleon' | 'bigBomb' | 'midas' | 'paint' | 'chain' | 'pact' | 'mason' | 'twin' | 'mitosis') => relics.some((r) => r.def[key]);
+export const sumMod = (relics: RelicInstance[], key: NumMod) =>
+  relics.reduce((s, r) => s + (r.def[key] ?? 0), 0);
+export const prodMod = (relics: RelicInstance[], key: MulMod) =>
+  relics.reduce((s, r) => s * (r.def[key] ?? 1), 1);
+export const hasFlag = (relics: RelicInstance[], key: FlagMod) => relics.some((r) => r.def[key]);
 
 /** Collectionneur : ×(1 + 0.15 par main de poker différente encaissée), le compteur est un masque de bits. */
 function collectionX(r: RelicInstance) {

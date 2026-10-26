@@ -1,4 +1,4 @@
-import { COLOR_NAMES, EDITION, ENH, isColorless } from './bricks';
+import { brickChips, EDITION, ENH, isColorless } from './bricks';
 import { evaluate, figureValue, type FigureDef, type FigureId, type FigureLevels } from './figures';
 import type { Pot, PotBrick } from './pot';
 import { computeProwess, PROWESS, type ProwessHit } from './prowess';
@@ -129,8 +129,10 @@ const isEnhanced = (b: PotBrick) => b.enh !== 'none' || b.edition !== 'none';
  * Pur : sert à l'aperçu live du Pot comme à l'encaissement réel.
  */
 export function computeScore(input: ScoreInput): ScoreResult {
-  const { pot, relics, roll } = input;
-  pot.chameleon = hasFlag(relics, 'chameleon');
+  const { relics, roll } = input;
+  // Caméléon : la Main est lue avec les couleurs confondues (sans modifier la Main reçue)
+  const chameleon = hasFlag(relics, 'chameleon');
+  const pot = input.pot.chameleon === chameleon ? input.pot : Object.assign(input.pot.withBricks(input.pot.bricks), { chameleon });
   const { figure, scoring } = evaluate(pot);
   const scoringUids = new Set(scoring.map((b) => b.uid));
   const acc = new ScoreAcc();
@@ -161,38 +163,19 @@ export function computeScore(input: ScoreInput): ScoreResult {
     return t;
   });
 
-  // Chaque brique qui compte donne sa valeur en Jetons (Pierre = 50), puis ses effets
+  // Chaque brique qui compte donne sa valeur en Jetons (Pierre = 50), puis les effets de son amélioration et de son édition
   const midas = hasFlag(relics, 'midas');
   scoring.forEach((b, i) => {
     acc.source = { kind: 'brick', color: isColorless(b) ? -1 : b.color, uid: b.uid };
+    const enh = ENH[b.enh];
     for (let t = 0; t < triggers[i]; t++) {
       const tag = t > 0 ? ' (relance)' : '';
-      const v = b.enh === 'pierre' ? 50 : b.value;
+      const v = brickChips(b);
       acc.chips(v, `+${v}${tag}`);
-      switch (b.enh) {
-        case 'bonus': acc.chips(30, `Bonus +30${tag}`); break;
-        case 'mult': acc.mult(4, `+4 Mult${tag}`); break;
-        case 'verre': acc.xmult(2, `Verre ×2${tag}`); break;
-        case 'acier': acc.xmult(1.5, `Acier ×1.5${tag}`); break;
-        case 'or':
-          acc.money(2, `Or +$2${tag}`);
-          if (midas) acc.xmult(1.5, `Midas ×1.5${tag}`);
-          break;
-        case 'fuyarde': acc.chips(40, `Fuyarde +40${tag}`); break;
-        case 'chance':
-          if (roll) {
-            if (roll() < 0.25) acc.mult(20, `Chance ! +20 Mult${tag}`);
-            if (roll() < 1 / 12) acc.money(10, `Jackpot ! +$10${tag}`);
-          }
-          break;
-      }
-      switch (b.edition) {
-        case 'metal': acc.chips(50, `Métal +50${tag}`); break;
-        case 'holo': acc.mult(10, `Holo +10 Mult${tag}`); break;
-        case 'poly': acc.xmult(1.5, `Poly ×1.5${tag}`); break;
-      }
+      enh.score?.(acc, { tag, midas, roll });
+      EDITION[b.edition].score?.(acc, tag);
     }
-    if (b.enh === 'verre' && roll && roll() < 0.25) destroyed.push(b.uid);
+    if (enh.shatter && roll && roll() < enh.shatter) destroyed.push(b.uid);
   });
 
   // Éclats (règle « brique de tête ») : le volume de casse donne des Jetons, pas des cartes
@@ -277,6 +260,3 @@ export function computeScore(input: ScoreInput): ScoreResult {
   const total = Math.floor(acc.chipsV * acc.multV);
   return { figure, level, scoringUids, steps: acc.steps, chips: acc.chipsV, mult: acc.multV, total, money: acc.moneyV, destroyed, prowess, blocked, orders: blocked ? [] : orders };
 }
-
-export const describeBrick = (b: PotBrick) =>
-  `${COLOR_NAMES[b.color]}${b.enh !== 'none' ? ' ' + ENH[b.enh].name : ''}${b.edition !== 'none' ? ' ' + EDITION[b.edition].name : ''}`;

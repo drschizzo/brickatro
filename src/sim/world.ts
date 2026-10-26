@@ -1,7 +1,7 @@
 import { Emitter } from '../core/events';
 import { clamp, damp } from '../core/math';
 import type { Rng } from '../core/rng';
-import type { BrickColor } from '../rules/bricks';
+import { ENH, type BrickColor, type Enh } from '../rules/bricks';
 import type { VeinKind } from '../rules/veins';
 
 export type { BrickColor } from '../rules/bricks';
@@ -281,7 +281,7 @@ export class World {
   }
 
   /** Pose une carte du deck dans un emplacement (ou le vide). */
-  setBrick(id: number, card: { uid: number; color: BrickColor; enh: string } | null) {
+  setBrick(id: number, card: { uid: number; color: BrickColor; enh: Enh } | null) {
     const b = this.bricks[id];
     if (b.kind === 'block') return;
     if (!card) {
@@ -293,7 +293,7 @@ export class World {
     b.alive = true;
     b.uid = card.uid;
     b.color = card.color;
-    b.hp = card.enh === 'acier' || card.enh === 'fuyarde' ? 2 : card.enh === 'pinata' ? 4 : 1;
+    b.hp = ENH[card.enh].hp ?? 1;
   }
 
   setTide(v: number) {

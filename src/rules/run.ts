@@ -77,6 +77,21 @@ export function createRun(deck: DeckDef, stakeIdx: number, seed: number, rules: 
   return run;
 }
 
+/** Début de Mur : les Reliques qui font évoluer le deck (Inflation, Souffleur). */
+export function evolveDeck(run: Run) {
+  // Inflation : le deck dérive, les 10 deviennent Polychromes
+  const inflate = sumMod(run.relics, 'inflate');
+  for (const c of run.rng.shuffle(run.cards.filter((c) => c.enh !== 'pierre')).slice(0, inflate)) {
+    if (c.value < 10) c.value++;
+    else c.edition = 'poly';
+  }
+  const glassify = sumMod(run.relics, 'glassifyOnWall');
+  if (glassify) {
+    const plain = run.rng.shuffle(run.cards.filter((c) => c.enh === 'none'));
+    plain.slice(0, glassify).forEach((c) => (c.enh = 'verre'));
+  }
+}
+
 export const isBossWall = (run: Run) => run.wallIdx === 2;
 export const activeBoss = (run: Run) => (isBossWall(run) ? run.boss : null);
 /** Objectif d'un Mur pour ce run (échelle du jeu de règles comprise). */

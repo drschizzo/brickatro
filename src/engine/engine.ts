@@ -1,5 +1,6 @@
 import { Emitter } from '../core/events';
-import { cloneCard, isColorless, LIVING, newCard, type BrickCard, type BrickColor, type Enh } from '../rules/bricks';
+import { cloneCard, ENH, isColorless, LIVING, newCard, type BrickCard, type BrickColor, type Enh } from '../rules/bricks';
+import { BOMB_DELAY, RING, type BreakInfo, type EffectApi, type Offset } from '../rules/effects';
 import { applyRune, type AstreDef, type RuneDef } from '../rules/consumables';
 import { WIN_ANTE, type DeckDef } from '../rules/decks';
 import { evaluate, FIGURE_BY_ID, figureIndex, type FigureDef, type FigureId } from '../rules/figures';
@@ -12,7 +13,7 @@ import { cutBlocks, cutSegments, fillBlock, fillSegment, planVeins } from '../ru
 import { RULESETS, type Rules } from '../rules/ruleset';
 import { hasFlag, MAX_RELICS, prodMod, sumMod, type RelicDef } from '../rules/relics';
 import {
-  activeBoss, advanceWall, cashOut, createRun, currentTarget, isBossWall, rescueCost, wallDiscards, wallLancers, wallSecousses, type Run,
+  activeBoss, advanceWall, cashOut, createRun, currentTarget, evolveDeck, isBossWall, rescueCost, wallDiscards, wallLancers, wallSecousses, type Run,
 } from '../rules/run';
 import { computeScore, frenzyStreak, type RunView, type ScoreResult } from '../rules/scoring';
 import { rollWallMod, type WallModOffer } from '../rules/wallmods';
@@ -76,15 +77,12 @@ export type EngineEvents = {
 
 /** Délai entre la dernière brique cassée et la repose du mur (secondes de jeu). */
 const REFILL_DELAY = 0.25;
-const BOMB_DELAY = 0.08;
 /** Délai avant que les briques d'un mur à gravité tombent dans la case libérée. */
 const GRAVITY_DELAY = 0.18;
 /** À partir de cette main de poker, la Main déclenche une onde de choc (une fois par Lancer). */
 const SHOCK_FIGURE = figureIndex(FIGURE_BY_ID.full);
 /** Nombre de prochaines briques de la pioche montrées au joueur. */
 export const PEEK = 3;
-/** Gain d'argent quand une Piñata casse. */
-const PINATA_MONEY = 3;
 
 /** Brique candidate du trajet (règle v3) : déjà comptée en Éclat, elle peut encore entrer dans la Main. */
 export interface TripCand { pb: PotBrick; chips: number; x: number; y: number }
@@ -133,8 +131,11 @@ export class Engine {
   /** Jeu de règles (figé). Il s'applique au prochain run. */
   rules: Rules;
 
+  private readonly api: EffectApi;
+
   constructor(readonly world: World, rules: Rules = RULESETS.v3) {
     this.rules = rules;
+    this.api = this.makeApi();
     this.bindWorld();
   }
 
@@ -158,17 +159,7 @@ export class Engine {
     const run = this.run!;
     run.wallMod = run.pendingMod;
     run.pendingMod = null;
-    // Inflation : le deck dérive, les 10 deviennent Polychromes
-    const inflate = sumMod(run.relics, 'inflate');
-    for (const c of run.rng.shuffle(run.cards.filter((c) => c.enh !== 'pierre')).slice(0, inflate)) {
-      if (c.value < 10) c.value++;
-      else c.edition = 'poly';
-    }
-    const glassify = sumMod(run.relics, 'glassifyOnWall');
-    if (glassify) {
-      const plain = run.rng.shuffle(run.cards.filter((c) => c.enh === 'none'));
-      plain.slice(0, glassify).forEach((c) => (c.enh = 'verre'));
-    }
+    evolveDeck(run);
     this.cards = new Map(run.cards.map((c) => [c.uid, c]));
     const w = this.wall;
     w.target = currentTarget(run);
@@ -226,11 +217,7 @@ export class Engine {
         }
       }
     }
-    for (const b of this.run!.rng.shuffle(front).slice(0, this.run!.rules.jokersPerWall)) {
-      const card = { ...this.cards.get(b.uid)!, enh: 'joker' as const };
-      this.cards.set(card.uid, card);
-      this.world.setBrick(b.id, card);
-    }
+    for (const b of this.run!.rng.shuffle(front).slice(0, this.run!.rules.jokersPerWall)) this.api.patchCard(b, { enh: 'joker' }, true);
   }
 
   /** Un Joker entre dans la Main : il prend la valeur et la couleur qui donnent le meilleur score. */
@@ -295,11 +282,7 @@ export class Engine {
     const live = this.world.bricks.filter((b) => b.alive && b.kind === 'brick');
     if (mod.living) {
       const plain = live.filter((b) => this.cards.get(b.uid)?.enh === 'none');
-      for (const b of this.run!.rng.shuffle(plain).slice(0, mod.living)) {
-        const card = { ...this.cards.get(b.uid)!, enh: this.run!.rng.pick(LIVING) };
-        this.cards.set(card.uid, card);
-        this.world.setBrick(b.id, card);
-      }
+      for (const b of this.run!.rng.shuffle(plain).slice(0, mod.living)) this.api.patchCard(b, { enh: this.run!.rng.pick(LIVING) }, true);
     }
     if (mod.armored) for (const b of live) b.hp = Math.max(b.hp, 2);
   }
@@ -363,12 +346,8 @@ export class Engine {
     bricks.forEach((b, i) => {
       const card = fresh[i];
       if (!card) return;
-      // Une copie limitée au Mur (Joker, Pinceau, brique vivante) redevient la vraie carte du deck
-      const orig = run.cards.find((c) => c.uid === b.uid);
-      if (orig) {
-        this.cards.set(orig.uid, orig);
-        w.discard.push(orig);
-      }
+      const orig = this.restoreDeckCard(b);
+      if (orig) w.discard.push(orig);
       this.temps.delete(b.uid);
       b.vein = 0;
       b.veinKind = null;
@@ -452,7 +431,7 @@ export class Engine {
     this.headTaken = false;
     this.tripCands = [];
     this.world.frenzy = false;
-    this.layEggs();
+    this.eachWallBrick('onLaunch');
     this.updateSnap();
     this.world.launch(angle);
     // Rune de Scission : la balle part en éventail
@@ -464,22 +443,12 @@ export class Engine {
     return true;
   }
 
-  /** Reines : chacune pond une brique de sa couleur dans une case libre voisine. */
-  private layEggs() {
-    const run = this.run!;
-    const ids: number[] = [];
-    for (const q of this.world.bricks) {
-      if (!q.alive || q.kind !== 'brick' || this.cards.get(q.uid)?.enh !== 'reine') continue;
-      const free = new Set(this.freeSlots());
-      const around = [[0, -1], [0, 1], [-1, 0], [1, 0], [-1, -1], [-1, 1], [1, -1], [1, 1]]
-        .map(([r, c]) => [q.row + r, q.col + c])
-        .filter(([r, c]) => r >= 0 && r < ROWS && c >= 0 && c < COLS && free.has(r * COLS + c));
-      if (!around.length) continue;
-      const [r, c] = around[0];
-      this.spawnTemp(r * COLS + c, q.color, 1 + run.rng.int(10));
-      ids.push(r * COLS + c);
+  /** Effet d'amélioration de chaque brique du mur (Reine au Lancer, Mimic au renvoi). */
+  private eachWallBrick(hook: 'onLaunch' | 'onRebound') {
+    for (const br of this.world.bricks) {
+      const c = br.alive && br.kind === 'brick' ? this.cards.get(br.uid) : undefined;
+      if (c) ENH[c.enh][hook]?.(this.api, br, c);
     }
-    if (ids.length) this.events.emit('spawned', { ids });
   }
 
   /** Mémorise la brique que la balle va toucher en premier (même calcul que le guide doré). */
@@ -554,11 +523,8 @@ export class Engine {
     const rune = run.consumables[index] as RuneDef;
     // Seules les briques encore sur le mur (sinon les cartes ne correspondent plus aux emplacements)
     const bricks = slotIds.map((id) => this.world.bricks[id]).filter((b) => b.alive && b.kind === 'brick' && this.cards.has(b.uid));
-    // Une brique peinte (Pinceau) redevient la vraie carte du deck avant d'être modifiée
-    for (const b of bricks) {
-      const orig = run.cards.find((c) => c.uid === b.uid);
-      if (orig) this.cards.set(b.uid, orig);
-    }
+    // Une copie limitée au Mur redevient la vraie carte du deck avant d'être modifiée
+    for (const b of bricks) this.restoreDeckCard(b);
     const cards = bricks.map((b) => this.cards.get(b.uid)!);
     run.consumables.splice(index, 1);
     if (rune.destroy) {
@@ -770,34 +736,14 @@ export class Engine {
         if (this.pot.segment === 3) tags.push(PROWESS.double.name);
         money = this.currentBall?.money ?? 0;
       }
-      if (card.enh === 'pinata') {
-        money += PINATA_MONEY;
-        tags.push('Piñata');
-        const a = run.rng.range(-0.6, 0.6);
-        this.world.spawnExtra(brick.x, brick.y, Math.sin(a), -Math.cos(a));
-      }
-      run.money += money;
-      const bomb = card.enh === 'bombe';
-      if (bomb) {
-        const big = hasFlag(run.relics, 'bigBomb');
-        for (let r = -1; r <= 1; r++) for (let c = -1; c <= 1; c++) {
-          if (!r && !c) continue;
-          if (!big && r && c) continue;
-          const rr = brick.row + r, cc = brick.col + c;
-          if (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS) this.explosions.push({ id: rr * COLS + cc, t: BOMB_DELAY });
-        }
-      }
-      if (hasFlag(run.relics, 'paint') && !isColorless(card)) this.paintAround(brick, card.color);
-      if (hasFlag(run.relics, 'chain') && cause !== 'explosion' && !isColorless(card)) {
-        // Voisinage : les voisines de rangée de même valeur cassent aussi (pas de réaction en chaîne)
-        for (const nb of this.rowNeighbors(brick)) {
-          const c = this.cards.get(nb.uid);
-          if (c && !isColorless(c) && c.value === card.value) this.explosions.push({ id: nb.id, t: BOMB_DELAY * 1.5 });
-        }
-      }
+      // Effets de l'amélioration de la brique (Piñata, Bombe), puis des Reliques (Pinceau, Voisinage)
+      const info: BreakInfo = { brick, card, cause, money, tags, bomb: false };
+      ENH[card.enh].onBreak?.(this.api, info);
+      run.money += info.money;
+      for (const r of [...run.relics]) r.def.onBrickBroken?.(r, this.api, info);
       if (this.world.gravity && this.settleIn < 0) this.settleIn = GRAVITY_DELAY;
       this.updateSnap();
-      this.events.emit('brick', { brick, card, eclipsed, out, tags, shard, money, bomb, cause, dx, dy });
+      this.events.emit('brick', { brick, card, eclipsed, out, tags, shard, money: info.money, bomb: info.bomb, cause, dx, dy });
     });
 
     ev.on('paddleHit', ({ offset, extra }) => {
@@ -807,28 +753,12 @@ export class Engine {
       this.pot.addRebound(offset);
       this.headTaken = false;
       this.aimAt();
-      run.relics.forEach((r) => r.def.onRebound?.(r));
       const tide = (activeBoss(run)?.tide ?? 0) + (run.wallMod?.mod.tide ?? 0);
       if (tide) this.world.setTide(this.world.tide + tide);
       this.checkFrenzy();
-      if (this.pot.rebounds === 3 && hasFlag(run.relics, 'mitosis')) this.world.splitBall(0.35);
-      if (hasFlag(run.relics, 'mason')) {
-        const free = this.freeSlots();
-        if (free.length) {
-          const id = run.rng.pick(free);
-          this.spawnTemp(id, run.rng.int(4) as BrickColor, 7);
-          this.events.emit('spawned', { ids: [id] });
-        }
-      }
+      for (const r of [...run.relics]) r.def.onRebound?.(r, this.api);
       // Mimics : nouvelle valeur à chaque renvoi (copie limitée à ce Mur)
-      const morphed: number[] = [];
-      for (const br of this.world.bricks) {
-        const c = br.alive && br.kind === 'brick' ? this.cards.get(br.uid) : undefined;
-        if (c?.enh !== 'mimic') continue;
-        this.cards.set(c.uid, { ...c, value: 1 + run.rng.int(10) });
-        morphed.push(br.id);
-      }
-      if (morphed.length) this.events.emit('morphed', { ids: morphed });
+      this.eachWallBrick('onRebound');
       this.updateSnap();
     });
 
@@ -843,14 +773,7 @@ export class Engine {
     ev.on('brickDamaged', ({ brick }) => {
       // Fuyarde : au premier coup, elle file vers une case libre loin de la balle
       const card = this.cards.get(brick.uid);
-      if (!this.run || card?.enh !== 'fuyarde') return;
-      const far = this.freeSlots().filter((id) => Math.hypot(this.world.bricks[id].x - brick.x, this.world.bricks[id].y - brick.y) > 3);
-      if (!far.length) return;
-      const to = this.run.rng.pick(far);
-      this.world.moveBrick(brick.id, to);
-      if (this.lasered.delete(brick.id)) this.lasered.add(to);
-      this.updateSnap();
-      this.events.emit('fled', { from: brick.id, to });
+      if (this.run && card) ENH[card.enh].onDamaged?.(this.api, brick);
     });
 
     ev.on('bumperHit', () => {
@@ -878,15 +801,8 @@ export class Engine {
       if (!run) return;
       this.resolveTrip();
       run.stats.ballsLost++;
-      run.relics.forEach((r) => r.def.onBallLost?.(r));
-      if (hasFlag(run.relics, 'pact')) {
-        const victims = run.relics.filter((r) => !r.def.pact);
-        if (victims.length) {
-          const v = run.rng.pick(victims);
-          run.relics.splice(run.relics.indexOf(v), 1);
-          this.events.emit('relicLost', { def: v.def });
-        }
-      }
+      // Copie : le Pacte du Diable peut détruire une Relique pendant le parcours
+      for (const r of [...run.relics]) r.def.onBallLost?.(r, this.api);
       this.explosions = [];
       const keep = Math.max(0, ...run.relics.map((r) => r.def.keepOnLoss ?? 0));
       if (keep > 0 && !this.pot.empty) this.events.emit('lancerEnd', { kind: 'insured', res: this.score(null, true, keep), x, keep });
@@ -964,10 +880,7 @@ export class Engine {
     const fig = evaluate(this.pot).figure;
     if (figureIndex(fig) < SHOCK_FIGURE) return;
     this.shockDone = true;
-    for (let r = -1; r <= 1; r++) for (let c = -1; c <= 1; c++) {
-      const rr = brick.row + r, cc = brick.col + c;
-      if ((r || c) && rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS) this.explosions.push({ id: rr * COLS + cc, t: BOMB_DELAY * 2 });
-    }
+    for (const id of this.around(brick, RING)) this.explosions.push({ id, t: BOMB_DELAY * 2 });
     this.events.emit('bigFigure', { x: brick.x, y: brick.y, figure: fig! });
   }
 
@@ -998,17 +911,57 @@ export class Engine {
     return out;
   }
 
-  /** Pinceau : les voisines de rangée prennent la couleur (copie de carte limitée à ce Mur, le deck ne change pas). */
-  private paintAround(brick: Brick, color: BrickColor) {
-    const ids: number[] = [];
-    for (const nb of this.rowNeighbors(brick)) {
-      const c = this.cards.get(nb.uid);
-      if (!c || isColorless(c) || c.color === color) continue;
-      this.cards.set(c.uid, { ...c, color });
-      nb.color = color;
-      ids.push(nb.id);
+  /** Emplacements voisins d'une brique, dans les limites du mur. */
+  private around(brick: Brick, offsets: readonly Offset[]): number[] {
+    const out: number[] = [];
+    for (const [r, c] of offsets) {
+      const rr = brick.row + r, cc = brick.col + c;
+      if (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS) out.push(rr * COLS + cc);
     }
-    if (ids.length) this.events.emit('painted', { ids, color });
+    return out;
+  }
+
+  /** Une copie limitée au Mur (Joker, Pinceau, brique vivante) redevient la vraie carte du deck. */
+  private restoreDeckCard(brick: Brick): BrickCard | undefined {
+    const orig = this.run?.cards.find((c) => c.uid === brick.uid);
+    if (orig) this.cards.set(orig.uid, orig);
+    return orig;
+  }
+
+  /** Ce que les effets (Reliques, améliorations de briques) peuvent faire sur le Mur. */
+  private makeApi(): EffectApi {
+    const engine = this;
+    return {
+      get run() { return engine.run!; },
+      world: this.world,
+      pot: this.pot,
+      card: (uid) => this.cards.get(uid),
+      patchCard: (brick, patch, place = false) => {
+        const card = { ...this.cards.get(brick.uid)!, ...patch };
+        this.cards.set(card.uid, card);
+        if (place) this.world.setBrick(brick.id, card);
+        return card;
+      },
+      rowNeighbors: (brick) => this.rowNeighbors(brick),
+      around: (brick, offsets) => this.around(brick, offsets),
+      explode: (slot, delay) => this.explosions.push({ id: slot, t: delay }),
+      freeSlots: () => this.freeSlots(),
+      spawnTemp: (slot, color, value, enh) => this.spawnTemp(slot, color, value, enh),
+      spawned: (ids) => this.events.emit('spawned', { ids }),
+      painted: (ids, color) => this.events.emit('painted', { ids, color }),
+      morphed: (ids) => this.events.emit('morphed', { ids }),
+      fled: (from, to) => {
+        this.updateSnap();
+        this.events.emit('fled', { from, to });
+      },
+      relicLost: (index) => {
+        const [lost] = this.run!.relics.splice(index, 1);
+        if (lost) this.events.emit('relicLost', { def: lost.def });
+      },
+      movedSlot: (from, to) => {
+        if (this.lasered.delete(from)) this.lasered.add(to);
+      },
+    };
   }
 
   // ───────────────────────── Boutique ─────────────────────────
