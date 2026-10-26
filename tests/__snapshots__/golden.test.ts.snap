@@ -1,0 +1,169 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`runs de référence (bot moyen, boutique greedy) > Défausses, Outils et Runes offertes 1`] = `
+{
+  "hash": "26b3f286f6949447",
+  "runs": [
+    {
+      "ante": 7,
+      "bestHand": 44520,
+      "cashes": 29,
+      "relics": "grandmenage,minimaliste,glouton,poignet,kamikaze",
+      "seed": 17,
+      "total": 360036,
+      "wall": 1,
+      "won": false,
+    },
+  ],
+}
+`;
+
+exports[`runs de référence (bot moyen, boutique greedy) > Reliques de comportement (Pinceau, Voisinage, Maçon fou, Mitose, Pacte) 1`] = `
+{
+  "hash": "1bceb7117ee21a43",
+  "runs": [
+    {
+      "ante": 7,
+      "bestHand": 184555,
+      "cashes": 32,
+      "relics": "macon,mitose,pacte",
+      "seed": 3,
+      "total": 667865,
+      "wall": 2,
+      "won": false,
+    },
+    {
+      "ante": 7,
+      "bestHand": 37728,
+      "cashes": 35,
+      "relics": "mitose,pacte,glouton",
+      "seed": 11,
+      "total": 330438,
+      "wall": 0,
+      "won": false,
+    },
+  ],
+}
+`;
+
+exports[`runs de référence (bot moyen, boutique greedy) > Reliques diverses (Démolisseur, Inflation, Souffleur, Siamoise, Filet) 1`] = `
+{
+  "hash": "f8ba80fe16dbfddf",
+  "runs": [
+    {
+      "ante": 8,
+      "bestHand": 739157,
+      "cashes": 28,
+      "relics": "inflation,souffleur,siamoise,filet,monomane",
+      "seed": 5,
+      "total": 3912965,
+      "wall": 2,
+      "won": true,
+    },
+    {
+      "ante": 8,
+      "bestHand": 1446990,
+      "cashes": 32,
+      "relics": "inflation,souffleur,siamoise,filet,reverb",
+      "seed": 13,
+      "total": 3097148,
+      "wall": 2,
+      "won": true,
+    },
+  ],
+}
+`;
+
+exports[`runs de référence (bot moyen, boutique greedy) > pose en Filons (blocs) et règle « première brique » 1`] = `
+{
+  "hash": "9e5eb6c1b05b530b",
+  "runs": [
+    {
+      "ante": 6,
+      "bestHand": 42233,
+      "cashes": 33,
+      "relics": "flipperrelic,pacte,accelerateur,stalagmite",
+      "seed": 19,
+      "total": 295094,
+      "wall": 0,
+      "won": false,
+    },
+  ],
+}
+`;
+
+exports[`runs de référence (bot moyen, boutique greedy) > règles classic 1`] = `
+{
+  "hash": "31dbb9463ff28e0d",
+  "runs": [
+    {
+      "ante": 8,
+      "bestHand": 230342,
+      "cashes": 38,
+      "relics": "poignet,glouton,mecene,pacte,tonnerre",
+      "seed": 1,
+      "total": 1847570,
+      "wall": 2,
+      "won": true,
+    },
+    {
+      "ante": 8,
+      "bestHand": 176792,
+      "cashes": 35,
+      "relics": "colosse,pacte,kamikaze,vertige",
+      "seed": 7920,
+      "total": 1364579,
+      "wall": 1,
+      "won": false,
+    },
+  ],
+}
+`;
+
+exports[`runs de référence (bot moyen, boutique greedy) > règles v3 1`] = `
+{
+  "hash": "86024d2e43c35a38",
+  "runs": [
+    {
+      "ante": 6,
+      "bestHand": 37810,
+      "cashes": 18,
+      "relics": "glouton,arcenciel,poignet,colosse,kamikaze",
+      "seed": 1,
+      "total": 253109,
+      "wall": 2,
+      "won": false,
+    },
+    {
+      "ante": 8,
+      "bestHand": 129402,
+      "cashes": 36,
+      "relics": "poignet,colosse,pacte,glouton,voisinage",
+      "seed": 7920,
+      "total": 836920,
+      "wall": 2,
+      "won": true,
+    },
+    {
+      "ante": 7,
+      "bestHand": 80791,
+      "cashes": 22,
+      "relics": "stalagmite,pacte,decimal",
+      "seed": 15839,
+      "total": 567846,
+      "wall": 2,
+      "won": false,
+    },
+    {
+      "ante": 8,
+      "bestHand": 106862,
+      "cashes": 38,
+      "relics": "arcenciel,glouton,colosse,pacte,decimal",
+      "seed": 23758,
+      "total": 731953,
+      "wall": 2,
+      "won": true,
+    },
+  ],
+}
+`;
